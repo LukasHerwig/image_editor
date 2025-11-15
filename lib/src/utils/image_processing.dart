@@ -19,6 +19,37 @@ class ImageProcessing {
       throw Exception('Failed to decode image');
     }
 
+    // Apply rotation (both 90-degree and fine rotation) FIRST
+    // This is important because the rotation affects the coordinate system
+    final totalRotation = state.rotation + state.fineRotation;
+    if (totalRotation != 0) {
+      image = _applyRotation(image, totalRotation);
+
+      // After rotation, apply auto-scale by cropping to the inscribed rectangle
+      // This ensures the output matches what the user sees (no black corners)
+      if (totalRotation % 90 != 0) {
+        final autoScale = state.autoScaleForRotation;
+        // Calculate the inscribed rectangle dimensions
+        final newWidth = (image.width * autoScale).round();
+        final newHeight = (image.height * autoScale).round();
+        final offsetX = ((image.width - newWidth) / 2).round();
+        final offsetY = ((image.height - newHeight) / 2).round();
+
+        image = img.copyCrop(
+          image,
+          x: offsetX,
+          y: offsetY,
+          width: newWidth,
+          height: newHeight,
+        );
+      }
+    }
+
+    // Apply flips
+    if (state.flipHorizontal) {
+      image = img.flipHorizontal(image);
+    }
+
     // Apply crop/zoom if either crop rect is set OR if there's zoom/pan
     // If no explicit crop rect, use full image (0,0,1,1) as the crop area
     if (state.cropRect != null ||
@@ -39,17 +70,6 @@ class ImageProcessing {
         state.panOffset,
         state.displaySize,
       );
-    }
-
-    // Apply rotation (both 90-degree and fine rotation)
-    final totalRotation = state.rotation + state.fineRotation;
-    if (totalRotation != 0) {
-      image = _applyRotation(image, totalRotation);
-    }
-
-    // Apply flips
-    if (state.flipHorizontal) {
-      image = img.flipHorizontal(image);
     }
 
     // Apply color adjustments

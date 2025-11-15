@@ -25,11 +25,33 @@ class ImageCanvas extends StatefulWidget {
 class _ImageCanvasState extends State<ImageCanvas> {
   final TransformationController _transformationController =
       TransformationController();
+  double _lastAutoScale = 1.0;
 
   @override
   void dispose() {
     _transformationController.dispose();
     super.dispose();
+  }
+
+  void _updateTransformationForRotation(double autoScale) {
+    // When rotation changes, we need to adjust the InteractiveViewer's scale
+    // to compensate for the auto-scale applied to the image
+    if (_lastAutoScale != autoScale) {
+      final currentMatrix = _transformationController.value;
+      final currentScale = currentMatrix.getMaxScaleOnAxis();
+
+      // Calculate the new scale that maintains the effective zoom level
+      // We want to scale up by 1/autoScale to compensate for the image shrinking
+      final compensationScale = 1.0 / autoScale;
+      final newScale =
+          currentScale * (compensationScale / (1.0 / _lastAutoScale));
+
+      // Apply the new transformation
+      _transformationController.value = Matrix4.identity()
+        ..scale(newScale, newScale);
+
+      _lastAutoScale = autoScale;
+    }
   }
 
   @override
@@ -78,12 +100,19 @@ class _ImageCanvasState extends State<ImageCanvas> {
         }
 
         // Apply rotation and flips
+        // Auto-scale is applied to prevent black background from showing during rotation
+        final autoScale = state.autoScaleForRotation;
+
+        // Update InteractiveViewer transformation to compensate for rotation scale
+        _updateTransformationForRotation(autoScale);
+
         transformedImage = Transform(
           alignment: Alignment.center,
           transform: Matrix4.identity()
             ..rotateZ((state.rotation + state.fineRotation) * 3.14159 / 180)
             ..scale(
-              state.flipHorizontal ? -1.0 : 1.0,
+              state.flipHorizontal ? -autoScale : autoScale,
+              autoScale,
             ),
           child: transformedImage,
         );
@@ -109,7 +138,7 @@ class _ImageCanvasState extends State<ImageCanvas> {
                     // Image with InteractiveViewer for zoom/pan
                     InteractiveViewer(
                       transformationController: _transformationController,
-                      minScale: 0.1,
+                      minScale: 1.0 / autoScale,
                       maxScale: 4.0,
                       boundaryMargin: EdgeInsets.zero,
                       clipBehavior: Clip.hardEdge,

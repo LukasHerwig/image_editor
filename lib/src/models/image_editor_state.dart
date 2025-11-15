@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// State model for the image editor
@@ -82,6 +83,24 @@ class ImageEditorState {
       cropRect != null ||
       scale != 1.0 ||
       panOffset != Offset.zero;
+
+  /// Calculate the scale factor needed to fit a rotated rectangle within its bounds
+  /// This ensures no black background is visible when rotating
+  double get autoScaleForRotation {
+    final totalRotation = rotation + fineRotation;
+    if (totalRotation == 0.0) return 1.0;
+
+    // Convert to radians and normalize to 0-90 degrees for calculation
+    final radians = (totalRotation.abs() % 90) * (math.pi / 180);
+
+    // For a rectangle rotated by angle θ, the scale factor to fit it within
+    // the original bounds is: 1 / (cos(θ) + sin(θ))
+    // This creates the largest inscribed rectangle
+    final cosAngle = math.cos(radians);
+    final sinAngle = math.sin(radians);
+
+    return 1.0 / (cosAngle + sinAngle);
+  }
 }
 
 enum EditorTab {
