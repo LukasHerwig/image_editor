@@ -109,9 +109,12 @@ class _ImageCanvasState extends State<ImageCanvas> {
                     // Image with InteractiveViewer for zoom/pan
                     InteractiveViewer(
                       transformationController: _transformationController,
-                      minScale: 1.0,
+                      minScale: 0.1,
                       maxScale: 4.0,
-                      boundaryMargin: const EdgeInsets.all(double.infinity),
+                      boundaryMargin: EdgeInsets.zero,
+                      clipBehavior: Clip.hardEdge,
+                      panEnabled: true,
+                      scaleEnabled: true,
                       onInteractionUpdate: (details) {
                         // Extract scale and translation from transformation matrix in real-time
                         final matrix = _transformationController.value;
@@ -123,6 +126,7 @@ class _ImageCanvasState extends State<ImageCanvas> {
                             .setPanOffset(Offset(translation.x, translation.y));
                       },
                       child: ClipRect(
+                        clipBehavior: Clip.hardEdge,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
