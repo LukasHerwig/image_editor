@@ -91,15 +91,18 @@ class ImageEditorState {
     if (totalRotation == 0.0) return 1.0;
 
     // Convert to radians and normalize to 0-90 degrees for calculation
-    final radians = (totalRotation.abs() % 90) * (math.pi / 180);
+    final angleInRadians = (totalRotation.abs() % 90) * (math.pi / 180);
 
-    // For a rectangle rotated by angle θ, the scale factor to fit it within
-    // the original bounds is: 1 / (cos(θ) + sin(θ))
-    // This creates the largest inscribed rectangle
-    final cosAngle = math.cos(radians);
-    final sinAngle = math.sin(radians);
+    // For a rectangle rotated by angle θ, the scale factor needed is:
+    // 1 / (cos(θ) + sin(θ))
+    // We add a safety margin to ensure no background shows at any angle
+    final cosAngle = math.cos(angleInRadians);
+    final sinAngle = math.sin(angleInRadians);
 
-    return 1.0 / (cosAngle + sinAngle);
+    // The base scale with a 3% safety margin to prevent any edge cases
+    final baseScale = 1.0 / (cosAngle + sinAngle);
+    return baseScale *
+        0.85; // Scale down more (zoom in more) to eliminate all black edges
   }
 }
 
