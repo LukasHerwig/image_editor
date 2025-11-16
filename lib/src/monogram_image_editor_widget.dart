@@ -8,6 +8,7 @@ import 'package:monogram_image_editor/src/widgets/crop_controls.dart';
 import 'package:monogram_image_editor/src/widgets/image_canvas.dart';
 import 'package:monogram_image_editor/src/utils/image_processing.dart';
 import 'package:flutter/material.dart';
+import 'package:monogram_image_editor/src/widgets/liquid_glass.dart';
 import 'package:monogram_image_editor/src/widgets/rotate_tools_top.dart';
 
 /// iOS-style image editor widget
@@ -211,13 +212,13 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
   }
 
   Widget _buildTabSelector(ImageEditorState state) {
-    return Container(
+    return GlassContainer(
+      blur: 0,
       margin: const EdgeInsets.only(left: 62, right: 62, bottom: 26),
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2E),
-        borderRadius: BorderRadius.circular(42),
-      ),
+      height: 70,
+      width: 300,
+      borderRadius: 42,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,

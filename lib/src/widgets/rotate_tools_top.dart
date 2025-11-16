@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:monogram_image_editor/monogram_image_editor.dart';
 import 'package:monogram_image_editor/src/controller/image_editor_controller.dart';
+import 'package:monogram_image_editor/src/widgets/liquid_glass.dart';
 
 class RotateTools extends StatelessWidget {
   final ImageEditorController controller;
@@ -15,42 +16,43 @@ class RotateTools extends StatelessWidget {
       decoration: const BoxDecoration(
         color: Color(0xFF1C1C1E),
       ),
-      child: Row(
-        // move the rotate controls
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ListenableBuilder(
-            listenable: controller,
-            builder: (context, child) {
-              return Container(
-                margin: const EdgeInsets.only(top: 5, bottom: 15),
-                decoration: const BoxDecoration(
-                    color: Color(0xFF2C2C2E),
-                    borderRadius: BorderRadius.all(Radius.circular(32))),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(width: 8),
-                    _buildActionButton(
-                      icon: CupertinoIcons.arrow_left_right,
-                      label: 'Flip H',
-                      isActive: state.flipHorizontal,
-                      onTap: controller.flipHorizontal,
-                    ),
-                    const SizedBox(width: 24),
-                    _buildActionButton(
-                      icon: CupertinoIcons.rotate_left,
-                      label: 'Rotate',
-                      isActive: state.rotation != 0.0,
-                      onTap: controller.rotate90,
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                ),
-              );
-            },
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: GlassContainer(
+          height: 45,
+          child: Row(
+            // move the rotate controls
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListenableBuilder(
+                listenable: controller,
+                builder: (context, child) {
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(width: 8),
+                      _buildActionButton(
+                        icon: CupertinoIcons.arrow_left_right,
+                        label: 'Flip H',
+                        isActive: state.flipHorizontal,
+                        onTap: controller.flipHorizontal,
+                      ),
+                      const SizedBox(width: 24),
+                      _buildActionButton(
+                        icon: CupertinoIcons.rotate_left,
+                        label: 'Rotate',
+                        isActive: state.rotation != 0.0,
+                        onTap: controller.rotate90,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
