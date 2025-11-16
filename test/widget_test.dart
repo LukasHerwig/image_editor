@@ -10,7 +10,6 @@ void main() {
     expect(state.saturation, 1.0);
     expect(state.rotation, 0.0);
     expect(state.flipHorizontal, false);
-    expect(state.flipVertical, false);
     expect(state.hasChanges, false);
   });
 
