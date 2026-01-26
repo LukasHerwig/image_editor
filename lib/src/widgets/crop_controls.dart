@@ -1,7 +1,7 @@
-import 'package:monogram_image_editor/src/controller/image_editor_controller.dart';
-import 'package:monogram_image_editor/src/models/image_editor_state.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:monogram_image_editor/image_editor.dart';
+import 'package:monogram_image_editor/monogram_image_editor.dart';
 
 /// Crop controls with aspect ratio presets
 class CropControls extends StatefulWidget {
@@ -21,122 +21,190 @@ class _CropControlsState extends State<CropControls> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'Aspect Ratio',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
+    return ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, child) {
+        final state = widget.controller.state;
+
+        return Container(
+          padding: const EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: 5,
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: AspectRatioPreset.values.map((preset) {
-              return _buildRatioButton(preset);
-            }).toList(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Aspect ratio presets
+              _buildAspectRatioSelector(state),
+              const SizedBox(height: 16),
+
+              // Fine rotation slider
+              Row(
+                children: [
+                  const Icon(
+                    CupertinoIcons.rotate_right,
+                    color: Colors.white70,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Angle',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              '${state.fineRotation.toStringAsFixed(1)}°',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderThemeData(
+                            activeTrackColor: CupertinoColors.systemBlue,
+                            inactiveTrackColor: Colors.white24,
+                            thumbColor: Colors.white,
+                            overlayColor:
+                                CupertinoColors.systemBlue.withOpacity(0.2),
+                            trackHeight: 2,
+                            thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6),
+                          ),
+                          child: Slider(
+                            value: state.fineRotation,
+                            min: -45,
+                            max: 45,
+                            onChanged: widget.controller.setFineRotation,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              setState(() {
-                _selectedRatio = AspectRatioPreset.free;
-              });
-              widget.controller.resetCrop();
-            },
-            child: const Text(
-              'Reset',
-              style: TextStyle(
-                color: CupertinoColors.systemBlue,
-                fontSize: 15,
+        );
+      },
+    );
+  }
+
+  Widget _buildAspectRatioSelector(ImageEditorState state) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: AspectRatioPreset.values.map((preset) {
+          final isSelected = state.aspectRatioPreset == preset;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: GestureDetector(
+              onTap: () => widget.controller.setAspectRatioPreset(preset),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? CupertinoColors.systemBlue
+                      : Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected
+                        ? CupertinoColors.systemBlue
+                        : Colors.white24,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildAspectRatioIcon(preset, isSelected),
+                    const SizedBox(width: 6),
+                    Text(
+                      preset.label,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontSize: 13,
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          );
+        }).toList(),
       ),
     );
   }
 
-  Widget _buildRatioButton(AspectRatioPreset preset) {
-    final isSelected = _selectedRatio == preset;
+  Widget _buildAspectRatioIcon(AspectRatioPreset preset, bool isSelected) {
+    final color = isSelected ? Colors.white : Colors.white70;
 
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedRatio = preset;
-        });
-        _applyAspectRatio(preset);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color:
-              isSelected ? CupertinoColors.systemBlue : const Color(0xFF2C2C2E),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          preset.label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
+    switch (preset) {
+      case AspectRatioPreset.free:
+        return Icon(CupertinoIcons.crop, size: 16, color: color);
+      case AspectRatioPreset.square:
+        return Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(2),
           ),
-        ),
-      ),
-    );
-  }
-
-  void _applyAspectRatio(AspectRatioPreset preset) {
-    final currentRect = widget.controller.state.cropRect ??
-        const CropRect(
-          left: 0.1,
-          top: 0.1,
-          width: 0.8,
-          height: 0.8,
         );
-
-    if (preset == AspectRatioPreset.free) {
-      // Keep current crop rect for free aspect ratio
-      return;
+      case AspectRatioPreset.ratio4x3:
+        return Container(
+          width: 16,
+          height: 12,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+      case AspectRatioPreset.ratio3x2:
+        return Container(
+          width: 15,
+          height: 10,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+      case AspectRatioPreset.ratio16x9:
+        return Container(
+          width: 18,
+          height: 10,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+      case AspectRatioPreset.ratio9x16:
+        return Container(
+          width: 10,
+          height: 18,
+          decoration: BoxDecoration(
+            border: Border.all(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
     }
-
-    final targetRatio = preset.ratio!;
-    final currentRatio = currentRect.width / currentRect.height;
-
-    CropRect newRect;
-
-    if (currentRatio > targetRatio) {
-      // Current is wider, adjust width
-      final newWidth = currentRect.height * targetRatio;
-      final centerX = currentRect.left + currentRect.width / 2;
-      final newLeft = (centerX - newWidth / 2).clamp(0.0, 1.0 - newWidth);
-
-      newRect = CropRect(
-        left: newLeft,
-        top: currentRect.top,
-        width: newWidth.clamp(0.1, 1.0 - newLeft),
-        height: currentRect.height,
-      );
-    } else {
-      // Current is taller, adjust height
-      final newHeight = currentRect.width / targetRatio;
-      final centerY = currentRect.top + currentRect.height / 2;
-      final newTop = (centerY - newHeight / 2).clamp(0.0, 1.0 - newHeight);
-
-      newRect = CropRect(
-        left: currentRect.left,
-        top: newTop,
-        width: currentRect.width,
-        height: newHeight.clamp(0.1, 1.0 - newTop),
-      );
-    }
-
-    widget.controller.setCropRect(newRect);
   }
 }

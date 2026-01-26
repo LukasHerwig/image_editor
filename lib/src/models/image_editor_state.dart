@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:monogram_image_editor/image_editor.dart';
 
 /// State model for the image editor
 class ImageEditorState {
@@ -13,8 +15,13 @@ class ImageEditorState {
   final bool flipHorizontal;
   final bool flipVertical;
   final CropRect? cropRect;
+  final double scale; // zoom scale (1.0 = no zoom)
+  final Offset panOffset; // pan offset in screen pixels from InteractiveViewer
+  final Size? displaySize; // actual displayed image size on screen
+  final Size? imageSize; // original image dimensions
   final EditorTab currentTab;
   final bool isProcessing;
+  final AspectRatioPreset aspectRatioPreset; // selected aspect ratio for crop
 
   const ImageEditorState({
     this.imageFile,
@@ -27,8 +34,13 @@ class ImageEditorState {
     this.flipHorizontal = false,
     this.flipVertical = false,
     this.cropRect,
+    this.scale = 1.0,
+    this.panOffset = Offset.zero,
+    this.displaySize,
+    this.imageSize,
     this.currentTab = EditorTab.crop,
     this.isProcessing = false,
+    this.aspectRatioPreset = AspectRatioPreset.free,
   });
 
   ImageEditorState copyWith({
@@ -43,8 +55,13 @@ class ImageEditorState {
     bool? flipVertical,
     CropRect? cropRect,
     bool clearCropRect = false,
+    double? scale,
+    Offset? panOffset,
+    Size? displaySize,
+    Size? imageSize,
     EditorTab? currentTab,
     bool? isProcessing,
+    AspectRatioPreset? aspectRatioPreset,
   }) {
     return ImageEditorState(
       imageFile: imageFile ?? this.imageFile,
@@ -57,8 +74,13 @@ class ImageEditorState {
       flipHorizontal: flipHorizontal ?? this.flipHorizontal,
       flipVertical: flipVertical ?? this.flipVertical,
       cropRect: clearCropRect ? null : (cropRect ?? this.cropRect),
+      scale: scale ?? this.scale,
+      panOffset: panOffset ?? this.panOffset,
+      displaySize: displaySize ?? this.displaySize,
+      imageSize: imageSize ?? this.imageSize,
       currentTab: currentTab ?? this.currentTab,
       isProcessing: isProcessing ?? this.isProcessing,
+      aspectRatioPreset: aspectRatioPreset ?? this.aspectRatioPreset,
     );
   }
 
@@ -69,8 +91,71 @@ class ImageEditorState {
       rotation != 0.0 ||
       fineRotation != 0.0 ||
       flipHorizontal ||
-      flipVertical ||
-      cropRect != null;
+      cropRect != null ||
+      scale != 1.0 ||
+      panOffset != Offset.zero;
+
+  /// Get the total rotation angle in degrees
+  double get totalRotation => rotation + fineRotation;
+
+  /// Get the image aspect ratio (width / height)
+  double get imageAspectRatio {
+    if (imageSize != null) {
+      return imageSize!.width / imageSize!.height;
+    }
+    // Default to 4:3 if image size not known yet
+    return 4.0 / 3.0;
+  }
+
+  /// Get the crop area aspect ratio
+  double get cropAspectRatio {
+    if (cropRect != null && displaySize != null) {
+      final cropWidth = cropRect!.width * displaySize!.width;
+      final cropHeight = cropRect!.height * displaySize!.height;
+      return cropWidth / cropHeight;
+    }
+    return imageAspectRatio;
+  }
+
+  /// Calculate the minimum scale factor needed to ensure a rotated image
+  /// completely covers the crop area with no empty space.
+  /// Uses the TransformationService for correct math.
+  double get minScaleForRotation {
+    return transformationService.calculateMinScaleForRotation(
+      rotationDegrees: totalRotation,
+      imageAspectRatio: imageAspectRatio,
+      cropAspectRatio: cropAspectRatio,
+    );
+  }
+
+  /// Calculate the scale factor needed to fit a rotated rectangle within its bounds
+  /// This ensures no black background is visible when rotating
+  /// DEPRECATED: Use minScaleForRotation instead - kept for backwards compatibility
+  double get autoScaleForRotation {
+    return 1.0 / minScaleForRotation;
+  }
+
+  /// Calculate the maximum allowed pan offset based on current rotation and scale
+  Offset get maxPanOffset {
+    if (displaySize == null || imageSize == null) {
+      return Offset.zero;
+    }
+    return transformationService.calculateMaxPanOffset(
+      imageSize: imageSize!,
+      viewportSize: displaySize!,
+      rotationDegrees: totalRotation,
+      currentScale: scale,
+    );
+  }
+
+  /// Get a clamped version of the current pan offset
+  Offset get clampedPanOffset {
+    final max = maxPanOffset;
+    return Offset(
+      panOffset.dx.clamp(-max.dx, max.dx),
+      panOffset.dy.clamp(-max.dy, max.dy),
+    );
+  }
 }
 
 enum EditorTab {
@@ -112,7 +197,9 @@ enum AspectRatioPreset {
   free,
   square,
   ratio4x3,
+  ratio3x2,
   ratio16x9,
+  ratio9x16,
 }
 
 extension AspectRatioPresetExtension on AspectRatioPreset {
@@ -121,11 +208,15 @@ extension AspectRatioPresetExtension on AspectRatioPreset {
       case AspectRatioPreset.free:
         return 'Free';
       case AspectRatioPreset.square:
-        return 'Square';
+        return '1:1';
       case AspectRatioPreset.ratio4x3:
         return '4:3';
+      case AspectRatioPreset.ratio3x2:
+        return '3:2';
       case AspectRatioPreset.ratio16x9:
         return '16:9';
+      case AspectRatioPreset.ratio9x16:
+        return '9:16';
     }
   }
 
@@ -137,8 +228,12 @@ extension AspectRatioPresetExtension on AspectRatioPreset {
         return 1.0;
       case AspectRatioPreset.ratio4x3:
         return 4.0 / 3.0;
+      case AspectRatioPreset.ratio3x2:
+        return 3.0 / 2.0;
       case AspectRatioPreset.ratio16x9:
         return 16.0 / 9.0;
+      case AspectRatioPreset.ratio9x16:
+        return 9.0 / 16.0;
     }
   }
 }
