@@ -396,6 +396,33 @@ class _ImageCanvasState extends State<ImageCanvas>
                     )
                   : null;
 
+              // ── Adjust tab: static crop-filled view, no gestures ──────────
+              // When the user switches to Adjust, show only the cropped region
+              // filling the canvas (the same result they'll export), with live
+              // color-filter preview.  No pan/zoom/crop handles are shown.
+              if (state.currentTab == EditorTab.adjust) {
+                Widget adjustView;
+                if (cropVpRect != null) {
+                  final cw = cropVpRect.width;
+                  final ch = cropVpRect.height;
+                  final s = math.min(vpSize.width / cw, vpSize.height / ch);
+                  final dx = vpSize.width / 2 - s * cropVpRect.center.dx;
+                  final dy = vpSize.height / 2 - s * cropVpRect.center.dy;
+                  adjustView = ClipRect(
+                    child: Transform(
+                      transform: Matrix4.identity()
+                        ..translate(dx, dy)
+                        ..scale(s),
+                      child: ClipRect(child: transformedImage),
+                    ),
+                  );
+                } else {
+                  // No crop set — just show the full image, static.
+                  adjustView = ClipRect(child: transformedImage);
+                }
+                return adjustView;
+              }
+
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 // Pan/zoom is always active — in crop mode the crop overlay
