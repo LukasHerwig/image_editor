@@ -67,15 +67,21 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
         return;
       }
 
-      // Process the image with all edits
+      // Process the image with all edits (WYSIWYG when displaySize is available)
       final File? originalFile = widget.imageFile;
+      final imageBytes = widget.imageBytes;
 
       if (originalFile != null) {
         final processedFile = await ImageProcessing.processImage(
           originalFile: originalFile,
           state: state,
         );
-
+        widget.onSave(processedFile);
+      } else if (imageBytes != null) {
+        final processedFile = await ImageProcessing.processImageFromBytes(
+          bytes: imageBytes,
+          state: state,
+        );
         widget.onSave(processedFile);
       }
     } catch (e) {
@@ -134,7 +140,6 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Tab selector
-                    _buildTabSelector(state),
 
                     // Tool-specific controls
                     Flexible(
@@ -142,6 +147,7 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
                         child: _buildToolControls(state),
                       ),
                     ),
+                    _buildTabSelector(state),
                   ],
                 ),
               ),
@@ -173,12 +179,24 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
                   ),
                 ),
               ),
-              const Text(
-                'Edit',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
+              // const Text(
+              //   'Edit',
+              //   style: TextStyle(
+              //     color: Colors.white,
+              //     fontSize: 17,
+              //     fontWeight: FontWeight.w600,
+              //   ),
+              // ),
+              CupertinoButton(
+                // reset image to default state
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                onPressed: _isSaving ? null : () => _controller.reset(),
+                child: const Text(
+                  'Reset',
+                  style: TextStyle(
+                    color: CupertinoColors.systemBlue,
+                    fontSize: 17,
+                  ),
                 ),
               ),
               CupertinoButton(

@@ -36,10 +36,6 @@ class _CropControlsState extends State<CropControls> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Aspect ratio presets
-              _buildAspectRatioSelector(state),
-              const SizedBox(height: 16),
-
               // Fine rotation slider
               Row(
                 children: [
@@ -96,6 +92,10 @@ class _CropControlsState extends State<CropControls> {
                   ),
                 ],
               ),
+              // Aspect ratio presets
+              const SizedBox(height: 16),
+              _buildAspectRatioSelector(state),
+              const SizedBox(height: 16),
             ],
           ),
         );

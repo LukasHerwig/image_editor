@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:monogram_image_editor/image_editor.dart';
@@ -23,84 +25,250 @@ class ImageCanvas extends StatefulWidget {
 
 class _ImageCanvasState extends State<ImageCanvas>
     with SingleTickerProviderStateMixin {
-  final TransformationController _transformationController =
-      TransformationController();
   late AnimationController _animationController;
 
-  /// Track the actual image dimensions
+  /// Actual pixel dimensions of the source image.
   Size? _imageSize;
 
-  /// Flag to prevent recursive updates
-  bool _isUpdatingTransform = false;
+  /// Last known viewport size (updated on every LayoutBuilder rebuild).
+  Size _viewportSize = const Size(100, 100);
+
+  // ── Snap-to-viewport timer ────────────────────────────────────────────────
+  Timer? _snapTimer;
+
+  /// Cancel any pending snap and start a fresh 2-second countdown.
+  void _scheduleSnap() {
+    _snapTimer?.cancel();
+    _snapTimer = Timer(const Duration(seconds: 1), _onSnapTimer);
+  }
+
+  /// After 2 s of idle the crop box animates to fill the viewport so the user
+  /// can see the selected region at full size.
+  void _onSnapTimer() {
+    if (!mounted) return;
+    final state = widget.controller.state;
+    if (state.currentTab != EditorTab.crop) return;
+    final cropRect = state.cropRect;
+    if (cropRect == null || _imageSize == null) return;
+
+    final vpW = _viewportSize.width;
+    final vpH = _viewportSize.height;
+    final cw = cropRect.width * vpW;
+    final ch = cropRect.height * vpH;
+
+    // Scale factor to make the crop box exactly fill the viewport
+    // (fit within viewport, preserving aspect ratio).
+    final s = math.min(vpW / cw, vpH / ch);
+    if (s <= 1.01) return; // already fills the viewport — nothing to do
+
+    final minScaleForRotation = state.minScaleForRotation;
+    final currentTotalScale = minScaleForRotation * state.scale;
+
+    // Find the image pixel at the center of the current crop box.
+    final cropCenterVp = Offset(
+      (cropRect.left + cropRect.width / 2) * vpW,
+      (cropRect.top + cropRect.height / 2) * vpH,
+    );
+    final imagePoint = transformationService.viewportToImageCoordinates(
+      viewportPoint: cropCenterVp,
+      viewportSize: _viewportSize,
+      imageSize: _imageSize!,
+      rotationDegrees: state.totalRotation,
+      scale: currentTotalScale,
+      panOffset: state.panOffset,
+      flipHorizontal: state.flipHorizontal,
+      flipVertical: state.flipVertical,
+    );
+
+    // New user scale (capped at 4×).
+    final newUserScale = (state.scale * s).clamp(1.0, 4.0);
+    final effectiveS =
+        newUserScale / state.scale; // may differ from s if capped
+    final newTotalScale = minScaleForRotation * newUserScale;
+
+    // Compute the pan that puts the crop-center image pixel at the viewport center.
+    // imageToViewportCoordinates with pan=0 gives: steps1to5 + vpCenter
+    // We want: steps1to5 + newPan + vpCenter = vpCenter  →  newPan = -steps1to5
+    //                                                        = vpCenter - vpPointZeroPan
+    final vpCenter = Offset(vpW / 2, vpH / 2);
+    final vpPointZeroPan = transformationService.imageToViewportCoordinates(
+      imagePoint: imagePoint,
+      viewportSize: _viewportSize,
+      imageSize: _imageSize!,
+      rotationDegrees: state.totalRotation,
+      scale: newTotalScale,
+      panOffset: Offset.zero,
+      flipHorizontal: state.flipHorizontal,
+      flipVertical: state.flipVertical,
+    );
+    final newPan = vpCenter - vpPointZeroPan;
+
+    // New crop rect: same center, scaled by effectiveS, centered in viewport.
+    final newCwPx = cw * effectiveS;
+    final newChPx = ch * effectiveS;
+    final newCropRect = CropRect(
+      left: (vpW - newCwPx) / 2 / vpW,
+      top: (vpH - newChPx) / 2 / vpH,
+      width: newCwPx / vpW,
+      height: newChPx / vpH,
+    );
+
+    widget.controller.animateSnapCrop(
+      userScale: newUserScale,
+      pan: newPan,
+      cropRect: newCropRect,
+    );
+  }
+
+  // ── Gesture state ──────────────────────────────────────────────────────────
+  Offset _gestureStartPan = Offset.zero;
+  double _gestureStartUserScale = 1.0;
+  Offset _gestureStartFocalPoint = Offset.zero;
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 250),
     );
-
-    // Connect animation controller to the editor controller
     widget.controller.setAnimationController(_animationController);
-    widget.controller.onTransformationUpdate = _onControllerTransformUpdate;
-
-    // Listen for external transformation changes
-    _transformationController.addListener(_onTransformationChanged);
-  }
-
-  void _onControllerTransformUpdate(Matrix4 matrix) {
-    if (!_isUpdatingTransform) {
-      _isUpdatingTransform = true;
-      _transformationController.value = matrix;
-      _isUpdatingTransform = false;
-    }
-  }
-
-  void _onTransformationChanged() {
-    if (_isUpdatingTransform) return;
-
-    _isUpdatingTransform = true;
-    final matrix = _transformationController.value;
-    final scale = matrix.getMaxScaleOnAxis();
-    final translation = matrix.getTranslation();
-
-    // Clamp scale between 1.0 and 4.0 (Transform handles rotation compensation)
-    final clampedScale = scale.clamp(1.0, 4.0);
-
-    // Clamp pan to valid bounds
-    final clampedPan = transformationService.clampPanOffset(
-      currentOffset: Offset(translation.x, translation.y),
-      imageSize: _imageSize ?? const Size(100, 100),
-      viewportSize: widget.controller.state.displaySize ?? const Size(100, 100),
-      rotationDegrees: widget.controller.state.totalRotation,
-      currentScale: clampedScale,
-    );
-
-    // If we needed to clamp, update the transformation controller
-    if (clampedScale != scale ||
-        clampedPan.dx != translation.x ||
-        clampedPan.dy != translation.y) {
-      final correctedMatrix = Matrix4.identity()
-        ..translate(clampedPan.dx, clampedPan.dy)
-        ..scale(clampedScale);
-      _transformationController.value = correctedMatrix;
-    }
-
-    widget.controller.setScale(clampedScale);
-    widget.controller.setPanOffset(clampedPan);
-
-    _isUpdatingTransform = false;
   }
 
   @override
   void dispose() {
+    _snapTimer?.cancel();
     widget.controller.disposeAnimationController();
-    widget.controller.onTransformationUpdate = null;
-    _transformationController.removeListener(_onTransformationChanged);
-    _transformationController.dispose();
     _animationController.dispose();
     super.dispose();
+  }
+
+  // ── Gesture handlers ───────────────────────────────────────────────────────
+
+  void _onScaleStart(ScaleStartDetails details) {
+    _snapTimer?.cancel(); // don't snap while user is actively interacting
+    _gestureStartPan = widget.controller.state.panOffset;
+    _gestureStartUserScale = widget.controller.state.scale;
+    _gestureStartFocalPoint = details.localFocalPoint;
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    final state = widget.controller.state;
+    final vpSize = _viewportSize;
+    final vpCenter = Offset(vpSize.width / 2, vpSize.height / 2);
+
+    // ── User scale ──────────────────────────────────────────────────────────
+    // Minimum scale is dynamic: the user cannot zoom out past the point where
+    // the image stops covering the current crop box.  This is the foundational
+    // invariant — the crop box is NEVER auto-modified; IMAGE movement is
+    // constrained instead.
+    final minUserScale = state.cropRect != null && _imageSize != null
+        ? transformationService.calculateMinUserScaleForCrop(
+            cropRect: state.cropRect!,
+            imageSize: _imageSize!,
+            viewportSize: vpSize,
+            rotationDegrees: state.totalRotation,
+          )
+        : 1.0;
+    final newUserScale =
+        (_gestureStartUserScale * details.scale).clamp(minUserScale, 4.0);
+
+    // ── Pan: zoom around focal point + translate with finger movement ───────
+    // For any scale ratio r = totalScaleNew / totalScaleStart, keeping the
+    // focal-start point visually fixed requires:
+    //   pan_new = (1−r)·(focalStart − vpCenter) + r·panStart
+    // Then we add the focal-point translation component separately:
+    //   pan_new += (focalCurrent − focalStart)
+    final minScale = state.minScaleForRotation;
+    final totalScaleStart = minScale * _gestureStartUserScale;
+    final totalScaleNew = minScale * newUserScale;
+    final r = totalScaleStart > 0 ? totalScaleNew / totalScaleStart : 1.0;
+
+    final rawPan = (_gestureStartFocalPoint - vpCenter) * (1 - r) +
+        _gestureStartPan * r +
+        (details.localFocalPoint - _gestureStartFocalPoint);
+
+    // ── Clamp pan to keep image covering the crop window ───────────────────
+    // In crop mode: use exact raycasting (projects all 4 crop corners into
+    // image space and pushes the pan just enough to cover them all).
+    // Outside crop mode: use the faster AABB approximation.
+    final Offset clampedPan;
+    if (state.currentTab == EditorTab.crop &&
+        state.cropRect != null &&
+        _imageSize != null) {
+      final totalScale = state.minScaleForRotation * newUserScale;
+      clampedPan = transformationService.clampPanToCoverCrop(
+        pan: rawPan,
+        cropRect: state.cropRect!,
+        imageSize: _imageSize!,
+        viewportSize: vpSize,
+        rotationDegrees: state.totalRotation,
+        totalScale: totalScale,
+        flipHorizontal: state.flipHorizontal,
+        flipVertical: state.flipVertical,
+      );
+    } else {
+      clampedPan = transformationService.clampPanOffset(
+        currentOffset: rawPan,
+        imageSize: _imageSize ?? const Size(100, 100),
+        viewportSize: vpSize,
+        rotationDegrees: state.totalRotation,
+        userScale: newUserScale,
+        cropViewport: _cropViewport(state, vpSize),
+      );
+    }
+
+    widget.controller.setScale(newUserScale);
+    widget.controller.setPanOffsetDirect(clampedPan);
+  }
+
+  void _onScaleEnd(ScaleEndDetails details) {
+    // Final clamp to correct any floating-point drift accumulated during gesture.
+    final state = widget.controller.state;
+    final Offset clamped;
+    if (state.currentTab == EditorTab.crop &&
+        state.cropRect != null &&
+        _imageSize != null) {
+      final totalScale = state.minScaleForRotation * state.scale;
+      clamped = transformationService.clampPanToCoverCrop(
+        pan: state.panOffset,
+        cropRect: state.cropRect!,
+        imageSize: _imageSize!,
+        viewportSize: _viewportSize,
+        rotationDegrees: state.totalRotation,
+        totalScale: totalScale,
+        flipHorizontal: state.flipHorizontal,
+        flipVertical: state.flipVertical,
+      );
+    } else {
+      clamped = transformationService.clampPanOffset(
+        currentOffset: state.panOffset,
+        imageSize: _imageSize ?? const Size(100, 100),
+        viewportSize: _viewportSize,
+        rotationDegrees: state.totalRotation,
+        userScale: state.scale,
+        cropViewport: _cropViewport(state, _viewportSize),
+      );
+    }
+    if (clamped != state.panOffset) {
+      widget.controller.setPanOffsetDirect(clamped);
+    }
+    // Note: the crop rect is NOT re-constrained here.  clampPanOffset already
+    // ensures the image always covers the crop box, so auto-reconstraining
+    // would only shrink what the user deliberately set.
+    if (state.currentTab == EditorTab.crop) _scheduleSnap();
+  }
+
+  /// Convert the state's cropRect (viewport fractions) to viewport-pixel Rect.
+  Rect? _cropViewport(ImageEditorState state, Size vpSize) {
+    final cr = state.cropRect;
+    if (cr == null) return null;
+    return Rect.fromLTWH(
+      cr.left * vpSize.width,
+      cr.top * vpSize.height,
+      cr.width * vpSize.width,
+      cr.height * vpSize.height,
+    );
   }
 
   @override
@@ -110,17 +278,13 @@ class _ImageCanvasState extends State<ImageCanvas>
       builder: (context, child) {
         final state = widget.controller.state;
 
-        // Calculate dynamic minScale based on current rotation
-        final minScale = state.minScaleForRotation;
-
+        // ── Build image widget ──────────────────────────────────────────────
         Widget imageWidget;
-
         if (widget.imageFile != null) {
           imageWidget = Image.file(
             widget.imageFile!,
             fit: BoxFit.contain,
             frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-              // Get image dimensions when loaded
               if (frame != null) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _resolveImageSize();
@@ -151,107 +315,125 @@ class _ImageCanvasState extends State<ImageCanvas>
           );
         }
 
-        // Apply transformations
-        Widget transformedImage = imageWidget;
-
-        // Apply color filters for real-time preview
-        if (state.brightness != 0 ||
-            state.contrast != 1.0 ||
-            state.saturation != 1.0) {
-          transformedImage = ColorFiltered(
-            colorFilter: ColorFilterMatrix.combined(
-              brightness: state.brightness,
-              contrast: state.contrast,
-              saturation: state.saturation,
-            ),
-            child: transformedImage,
-          );
-        }
-
-        // Calculate the scale compensation needed for the current rotation
-        // This ensures the rotated image always fills the crop area (no black corners)
-        final rotationCompensationScale = minScale;
-
-        // Apply rotation, flip, AND scale compensation together
-        // The scale compensation zooms the image so black corners are never visible
-        transformedImage = Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..scale(
-                rotationCompensationScale) // Zoom to compensate for rotation
-            ..rotateZ(state.totalRotation * 3.14159 / 180)
-            ..scale(
-              state.flipHorizontal ? -1.0 : 1.0,
-              state.flipVertical ? -1.0 : 1.0,
-            ),
-          child: transformedImage,
-        );
-
         return Container(
           color: Colors.black,
-          child: Center(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Calculate the actual displayed image size accounting for BoxFit.contain
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    widget.controller.setDisplaySize(
-                      Size(constraints.maxWidth, constraints.maxHeight),
-                    );
-                  }
-                });
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final vpSize = Size(constraints.maxWidth, constraints.maxHeight);
 
-                return Stack(
-                  children: [
-                    // Image with InteractiveViewer for zoom/pan
-                    InteractiveViewer(
-                      transformationController: _transformationController,
-                      minScale:
-                          1.0, // Allow zooming out to 1.0 since Transform handles rotation compensation
-                      maxScale: 4.0,
-                      constrained: true, // Keep image fitted to viewport
-                      clipBehavior: Clip.hardEdge,
-                      panEnabled: true,
-                      scaleEnabled: true,
-                      boundaryMargin:
-                          EdgeInsets.zero, // No panning outside image bounds
-                      onInteractionEnd: (details) {
-                        // On interaction end, ensure we're within bounds
-                        _ensureWithinBounds();
-                      },
-                      child: ClipRect(
-                        clipBehavior: Clip.hardEdge,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Show full image in crop mode, cropped version in other modes
-                            if (state.currentTab == EditorTab.crop)
-                              transformedImage
-                            else if (state.cropRect != null)
-                              _buildCroppedImage(
-                                  transformedImage, state.cropRect!)
-                            else
-                              transformedImage,
-                          ],
-                        ),
-                      ),
-                    ),
+              // Keep controller's displaySize / viewportSize in sync.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  _viewportSize = vpSize;
+                  widget.controller.setDisplaySize(vpSize);
+                }
+              });
 
-                    // Crop overlay (if in crop mode) - positioned above InteractiveViewer
-                    if (state.currentTab == EditorTab.crop)
-                      Positioned.fill(
-                        child: CropOverlay(
-                          cropRect: state.cropRect,
-                          aspectRatioPreset: state.aspectRatioPreset,
-                          onCropChanged: (rect) {
-                            widget.controller.setCropRect(rect);
-                          },
-                        ),
-                      ),
-                  ],
+              // ── Color filter (real-time preview) ─────────────────────────
+              Widget content = imageWidget;
+              if (state.brightness != 0 ||
+                  state.contrast != 1.0 ||
+                  state.saturation != 1.0) {
+                content = ColorFiltered(
+                  colorFilter: ColorFilterMatrix.combined(
+                    brightness: state.brightness,
+                    contrast: state.contrast,
+                    saturation: state.saturation,
+                  ),
+                  child: content,
                 );
-              },
-            ),
+              }
+
+              // ── Single unified Transform ──────────────────────────────────
+              // Matrix: T(pan) * S(minScale·userScale) * R(angle) * S(flip)
+              // with pivot at Alignment.center (= viewport centre = image centre
+              // for BoxFit.contain).
+              //
+              // All components live in the SAME widget tree, so rotation,
+              // scale-compensation, user-zoom and pan are always in sync with
+              // no one-frame lag or double-application.
+              final totalScale = state.minScaleForRotation * state.scale;
+              final transformedImage = Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..translate(state.panOffset.dx, state.panOffset.dy, 0.0)
+                  ..scale(totalScale)
+                  ..rotateZ(state.totalRotation * math.pi / 180)
+                  ..scale(
+                    state.flipHorizontal ? -1.0 : 1.0,
+                    state.flipVertical ? -1.0 : 1.0,
+                    1.0,
+                  ),
+                // SizedBox ensures the Image widget receives tight constraints
+                // equal to the viewport so BoxFit.contain letterboxes correctly
+                // and the transform pivots at the image centre.
+                child: SizedBox(
+                  width: vpSize.width,
+                  height: vpSize.height,
+                  child: content,
+                ),
+              );
+
+              // ── Crop rect in viewport pixels ──────────────────────────────
+              final cropVpRect = state.cropRect != null
+                  ? Rect.fromLTWH(
+                      state.cropRect!.left * vpSize.width,
+                      state.cropRect!.top * vpSize.height,
+                      state.cropRect!.width * vpSize.width,
+                      state.cropRect!.height * vpSize.height,
+                    )
+                  : null;
+
+              return ClipRect(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  // Pan/zoom is always active — in crop mode the crop overlay
+                  // handles consume touches on the handles/interior first.
+                  onScaleStart: _onScaleStart,
+                  onScaleUpdate: _onScaleUpdate,
+                  onScaleEnd: _onScaleEnd,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Transformed image (always rendered in full).
+                      transformedImage,
+
+                      // In crop mode: full interactive overlay.
+                      if (state.currentTab == EditorTab.crop)
+                        Positioned.fill(
+                          child: CropOverlay(
+                            cropRect: state.cropRect,
+                            imageSize: _imageSize,
+                            viewportSize: vpSize,
+                            totalRotation: state.totalRotation,
+                            totalScale: state.minScaleForRotation * state.scale,
+                            panOffset: state.panOffset,
+                            flipHorizontal: state.flipHorizontal,
+                            flipVertical: state.flipVertical,
+                            aspectRatioPreset: state.aspectRatioPreset,
+                            onCropChanged: widget.controller.setCropRect,
+                            onCropDragEnd: _scheduleSnap,
+                            onScaleStart: _onScaleStart,
+                            onScaleUpdate: _onScaleUpdate,
+                            onScaleEnd: _onScaleEnd,
+                          ),
+                        ),
+
+                      // In other modes: static crop-window indicator (no handles).
+                      if (state.currentTab != EditorTab.crop &&
+                          cropVpRect != null)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: CustomPaint(
+                              painter: CropOverlayPainter(cropRect: cropVpRect),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         );
       },
@@ -285,98 +467,57 @@ class _ImageCanvasState extends State<ImageCanvas>
       }
     }));
   }
-
-  /// Ensure the current pan is within valid bounds (animate back if needed)
-  void _ensureWithinBounds() {
-    final state = widget.controller.state;
-    final currentScale = state.scale;
-
-    // Check if scale needs adjustment (minimum is 1.0 since Transform handles rotation)
-    if (currentScale < 1.0) {
-      _animateToPosition(1.0, Offset.zero);
-      return;
-    }
-
-    // Check if pan needs adjustment
-    final maxPan = state.maxPanOffset;
-    final currentPan = state.panOffset;
-
-    final clampedPan = Offset(
-      currentPan.dx.clamp(-maxPan.dx, maxPan.dx),
-      currentPan.dy.clamp(-maxPan.dy, maxPan.dy),
-    );
-
-    if (clampedPan != currentPan) {
-      // Animate back to valid bounds
-      _animateToPosition(currentScale, clampedPan);
-    }
-  }
-
-  /// Animate to a specific scale and pan position
-  void _animateToPosition(double scale, Offset pan) {
-    final startMatrix = _transformationController.value.clone();
-
-    _animationController.reset();
-
-    final animation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    );
-
-    animation.addListener(() {
-      final t = animation.value;
-      final currentMatrix = Matrix4.identity();
-
-      // Interpolate between start and end matrices
-      final startScale = startMatrix.getMaxScaleOnAxis();
-      final endScale = scale;
-      final currentScale = startScale + (endScale - startScale) * t;
-
-      final startTranslation = startMatrix.getTranslation();
-      final currentPan = Offset(
-        startTranslation.x + (pan.dx - startTranslation.x) * t,
-        startTranslation.y + (pan.dy - startTranslation.y) * t,
-      );
-
-      currentMatrix
-        ..translate(currentPan.dx, currentPan.dy)
-        ..scale(currentScale);
-
-      _transformationController.value = currentMatrix;
-    });
-
-    _animationController.forward();
-  }
-
-  Widget _buildCroppedImage(Widget image, CropRect cropRect) {
-    return FittedBox(
-      fit: BoxFit.contain,
-      child: ClipRect(
-        child: Align(
-          alignment: Alignment.topLeft,
-          widthFactor: cropRect.width,
-          heightFactor: cropRect.height,
-          child: FractionalTranslation(
-            translation: Offset(-cropRect.left, -cropRect.top),
-            child: image,
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-/// Crop overlay with draggable corners and edges
+/// Crop overlay with draggable corners and edges.
+///
+/// All handle/interior drags are constrained via raycasting: each proposed
+/// corner is inverse-projected into image-local coordinates, clamped to the
+/// image rectangle, and projected back. This means the crop box can NEVER
+/// extend outside the actual visible image, regardless of rotation or flips.
 class CropOverlay extends StatefulWidget {
   final CropRect? cropRect;
+
+  // Transform params forwarded from the controller/canvas — used for the
+  // raycasting constraint (replaces the old AABB imageBounds approach).
+  final Size? imageSize;
+  final Size viewportSize;
+  final double totalRotation;
+  final double totalScale;
+  final Offset panOffset;
+  final bool flipHorizontal;
+  final bool flipVertical;
+
   final AspectRatioPreset aspectRatioPreset;
   final Function(CropRect) onCropChanged;
+
+  /// Called when the user lifts their finger after dragging any crop handle
+  /// or the crop interior.  The canvas uses this to schedule the
+  /// snap-to-viewport animation.
+  final VoidCallback? onCropDragEnd;
+
+  /// Forwarded to the canvas's _onScaleStart/Update/End so that pinch-zoom
+  /// gestures begun inside the crop interior reach the image transform logic.
+  final void Function(ScaleStartDetails)? onScaleStart;
+  final void Function(ScaleUpdateDetails)? onScaleUpdate;
+  final void Function(ScaleEndDetails)? onScaleEnd;
 
   const CropOverlay({
     Key? key,
     this.cropRect,
+    required this.imageSize,
+    required this.viewportSize,
+    required this.totalRotation,
+    required this.totalScale,
+    required this.panOffset,
+    required this.flipHorizontal,
+    required this.flipVertical,
     this.aspectRatioPreset = AspectRatioPreset.free,
     required this.onCropChanged,
+    this.onCropDragEnd,
+    this.onScaleStart,
+    this.onScaleUpdate,
+    this.onScaleEnd,
   }) : super(key: key);
 
   @override
@@ -385,11 +526,94 @@ class CropOverlay extends StatefulWidget {
 
 class _CropOverlayState extends State<CropOverlay> {
   CropRect? _currentRect;
-  Offset? _dragStart;
   CropRect? _dragStartRect;
 
   /// Get the target aspect ratio (null = free form)
   double? get _targetAspectRatio => widget.aspectRatioPreset.ratio;
+
+  // ── Raycasting constraint helper ──────────────────────────────────────────
+
+  /// Returns true when all transform info needed for raycasting is available.
+  bool get _canConstrain => widget.imageSize != null;
+
+  /// Constrain [rect] so every corner stays inside the visible image AND
+  /// inside the viewport bounds [0, 1] × [0, 1].
+  /// Falls back to viewport-only clamping when imageSize is not yet known.
+  CropRect _constrain(CropRect rect) {
+    if (_canConstrain) {
+      rect = transformationService.constrainCropRectToImage(
+        cropRect: rect,
+        imageSize: widget.imageSize!,
+        viewportSize: widget.viewportSize,
+        rotationDegrees: widget.totalRotation,
+        totalScale: widget.totalScale,
+        panOffset: widget.panOffset,
+        flipHorizontal: widget.flipHorizontal,
+        flipVertical: widget.flipVertical,
+      );
+    }
+    return _clampToViewport(rect);
+  }
+
+  /// Clamp [rect] so it never extends outside the viewport (fractions in [0,1]).
+  static CropRect _clampToViewport(CropRect rect) {
+    const minSize = 0.05;
+    final left = rect.left.clamp(0.0, 1.0 - minSize);
+    final top = rect.top.clamp(0.0, 1.0 - minSize);
+    final right = (left + rect.width).clamp(left + minSize, 1.0);
+    final bottom = (top + rect.height).clamp(top + minSize, 1.0);
+    return CropRect(
+      left: left,
+      top: top,
+      width: right - left,
+      height: bottom - top,
+    );
+  }
+
+  /// Variant of [_constrain] used for interior-pan (translate) gestures.
+  /// Preserves the user's crop size: instead of shrinking the rect when an
+  /// edge hits a boundary, the position is slid so the box stops at the
+  /// boundary while keeping [previous.width] and [previous.height] intact.
+  CropRect _constrainTranslation(CropRect previous, CropRect proposed) {
+    final constrained = _constrain(proposed);
+    final w = previous.width;
+    final h = previous.height;
+
+    // If size was fully preserved by the normal constraint the whole rect is
+    // within bounds — accept it as-is.
+    if ((constrained.width - w).abs() < 0.001 &&
+        (constrained.height - h).abs() < 0.001) {
+      return constrained;
+    }
+
+    // One or more edges hit a boundary.  Slide position to the boundary
+    // while keeping the original crop size.
+    double newLeft = proposed.left;
+    double newTop = proposed.top;
+
+    // Left boundary hit → slide right.
+    if (constrained.left > proposed.left + 0.001) {
+      newLeft = constrained.left;
+    }
+    // Right boundary hit → slide left.
+    if (constrained.left + constrained.width < proposed.left + w - 0.001) {
+      newLeft = constrained.left + constrained.width - w;
+    }
+    // Top boundary hit → slide down.
+    if (constrained.top > proposed.top + 0.001) {
+      newTop = constrained.top;
+    }
+    // Bottom boundary hit → slide up.
+    if (constrained.top + constrained.height < proposed.top + h - 0.001) {
+      newTop = constrained.top + constrained.height - h;
+    }
+
+    // Final viewport clamp that preserves size.
+    newLeft = newLeft.clamp(0.0, (1.0 - w).clamp(0.0, 1.0));
+    newTop = newTop.clamp(0.0, (1.0 - h).clamp(0.0, 1.0));
+
+    return CropRect(left: newLeft, top: newTop, width: w, height: h);
+  }
 
   @override
   void initState() {
@@ -399,30 +623,41 @@ class _CropOverlayState extends State<CropOverlay> {
 
   void _initializeRect() {
     if (widget.cropRect != null) {
-      _currentRect = widget.cropRect;
-    } else {
-      _currentRect = const CropRect(
-        left: 0.0,
-        top: 0.0,
-        width: 1.0,
-        height: 1.0,
-      );
+      _currentRect = _constrain(widget.cropRect!);
+    } else if (_canConstrain) {
+      // Default: image-filling rect (will be constrained automatically).
+      _currentRect = _constrain(const CropRect(
+        left: 0,
+        top: 0,
+        width: 1,
+        height: 1,
+      ));
     }
   }
 
   @override
   void didUpdateWidget(CropOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    // cropRect pushed from controller (e.g. resetCrop, aspect-ratio change).
+    // Note: when the transform changes (pan/zoom/rotation) we do NOT
+    // auto-recalculate the crop rect.  clampPanOffset keeps the image
+    // covering the crop box, so the crop never escapes the image and
+    // shrinking it automatically would override the user's explicit size.
     if (widget.cropRect != oldWidget.cropRect) {
-      _currentRect = widget.cropRect ??
-          const CropRect(
-            left: 0.0,
-            top: 0.0,
-            width: 1.0,
-            height: 1.0,
-          );
+      final incoming = widget.cropRect;
+      if (incoming == null) {
+        // Re-initialise to image-filling default.
+        if (_canConstrain) {
+          _currentRect =
+              _constrain(const CropRect(left: 0, top: 0, width: 1, height: 1));
+        }
+      } else {
+        _currentRect = _constrain(incoming);
+      }
     }
-    // If aspect ratio changed, adjust the current rect
+
+    // Aspect ratio preset changed.
     if (widget.aspectRatioPreset != oldWidget.aspectRatioPreset &&
         widget.aspectRatioPreset != AspectRatioPreset.free) {
       _adjustToAspectRatio();
@@ -441,26 +676,28 @@ class _CropOverlayState extends State<CropOverlay> {
     double newHeight = rect.height;
 
     if (currentAspect > targetAspect) {
-      // Current is too wide, reduce width
       newWidth = rect.height * targetAspect;
     } else {
-      // Current is too tall, reduce height
       newHeight = rect.width / targetAspect;
     }
 
-    // Center the adjusted rect within the original
     final left = rect.left + (rect.width - newWidth) / 2;
     final top = rect.top + (rect.height - newHeight) / 2;
 
+    final proposed = CropRect(
+      left: left,
+      top: top,
+      width: newWidth,
+      height: newHeight,
+    );
+
     setState(() {
-      _currentRect = CropRect(
-        left: left.clamp(0.0, 1.0 - newWidth),
-        top: top.clamp(0.0, 1.0 - newHeight),
-        width: newWidth.clamp(0.1, 1.0),
-        height: newHeight.clamp(0.1, 1.0),
-      );
+      _currentRect = _constrain(proposed);
     });
-    widget.onCropChanged(_currentRect!);
+    final toNotify = _currentRect!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onCropChanged(toNotify);
+    });
   }
 
   @override
@@ -486,42 +723,46 @@ class _CropOverlayState extends State<CropOverlay> {
               ),
             ),
 
-            // Draggable crop area (to move the entire crop)
+            // Crop interior: drag to translate the entire crop box.
+            // Scale gestures (pinch-zoom) are forwarded to the canvas so
+            // zooming works even when fingers land inside the crop area.
             Positioned(
               left: left,
               top: top,
               width: width,
               height: height,
               child: GestureDetector(
-                onPanStart: (details) {
-                  _dragStart = details.localPosition;
-                  _dragStartRect = _currentRect;
+                behavior: HitTestBehavior.opaque,
+                onScaleStart: (details) {
+                  widget.onScaleStart?.call(details);
                 },
-                onPanUpdate: (details) {
-                  if (_dragStart == null || _dragStartRect == null) return;
-
-                  final delta = details.localPosition - _dragStart!;
-                  final dx = delta.dx / constraints.maxWidth;
-                  final dy = delta.dy / constraints.maxHeight;
-
-                  setState(() {
-                    var newLeft = (_dragStartRect!.left + dx)
-                        .clamp(0.0, 1.0 - _dragStartRect!.width);
-                    var newTop = (_dragStartRect!.top + dy)
-                        .clamp(0.0, 1.0 - _dragStartRect!.height);
-
-                    _currentRect = CropRect(
-                      left: newLeft,
-                      top: newTop,
-                      width: _dragStartRect!.width,
-                      height: _dragStartRect!.height,
+                onScaleUpdate: (details) {
+                  if (details.pointerCount >= 2 || details.scale != 1.0) {
+                    // Multi-finger gesture → forward to canvas zoom handler.
+                    widget.onScaleUpdate?.call(details);
+                  } else {
+                    // Single-finger → translate crop box.
+                    if (_currentRect == null) return;
+                    final dx =
+                        details.focalPointDelta.dx / constraints.maxWidth;
+                    final dy =
+                        details.focalPointDelta.dy / constraints.maxHeight;
+                    final r = _currentRect!;
+                    final proposed = CropRect(
+                      left: r.left + dx,
+                      top: r.top + dy,
+                      width: r.width,
+                      height: r.height,
                     );
-                  });
-                  widget.onCropChanged(_currentRect!);
+                    setState(() {
+                      _currentRect = _constrainTranslation(r, proposed);
+                    });
+                    widget.onCropChanged(_currentRect!);
+                  }
                 },
-                onPanEnd: (_) {
-                  _dragStart = null;
-                  _dragStartRect = null;
+                onScaleEnd: (details) {
+                  widget.onScaleEnd?.call(details);
+                  widget.onCropDragEnd?.call();
                 },
                 child: CustomPaint(
                   painter: GridPainter(),
@@ -555,6 +796,7 @@ class _CropOverlayState extends State<CropOverlay> {
       left: x - 15,
       top: y - 15,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onPanStart: (details) {
           _dragStartRect = _currentRect;
         },
@@ -567,27 +809,21 @@ class _CropOverlayState extends State<CropOverlay> {
           setState(() {
             var newRect = _dragStartRect!;
 
-            // If we have a target aspect ratio, constrain the drag
             if (_targetAspectRatio != null) {
               newRect = _handleAspectRatioConstrainedDrag(
-                newRect,
-                dx,
-                dy,
-                alignment,
-                constraints,
-              );
+                  newRect, dx, dy, alignment, constraints);
             } else {
-              // Free form dragging
               newRect = _handleFreeFormDrag(newRect, dx, dy, alignment);
             }
 
-            _currentRect = newRect;
-            _dragStartRect = newRect;
+            _currentRect = _constrain(newRect);
+            _dragStartRect = _currentRect;
           });
           widget.onCropChanged(_currentRect!);
         },
         onPanEnd: (_) {
           _dragStartRect = null;
+          widget.onCropDragEnd?.call();
         },
         child: Container(
           width: 30,
@@ -608,42 +844,42 @@ class _CropOverlayState extends State<CropOverlay> {
     );
   }
 
-  /// Handle free-form dragging (no aspect ratio constraint)
+  /// Handle free-form dragging (no aspect ratio constraint).
+  /// Returns the raw (unconstrained) proposed rect — constraint is applied
+  /// centrally in _constrain() after this returns.
   CropRect _handleFreeFormDrag(
       CropRect rect, double dx, double dy, Alignment alignment) {
+    const minSize = 0.05;
+
     if (alignment == Alignment.topLeft) {
+      final newLeft = rect.left + dx;
+      final newTop = rect.top + dy;
+      final newWidth = (rect.width - dx).clamp(minSize, double.infinity);
+      final newHeight = (rect.height - dy).clamp(minSize, double.infinity);
       return CropRect(
-        left: (rect.left + dx).clamp(0.0, rect.left + rect.width - 0.1),
-        top: (rect.top + dy).clamp(0.0, rect.top + rect.height - 0.1),
-        width: (rect.width - dx).clamp(0.1, 1.0),
-        height: (rect.height - dy).clamp(0.1, 1.0),
-      );
+          left: newLeft, top: newTop, width: newWidth, height: newHeight);
     } else if (alignment == Alignment.topRight) {
+      final newTop = rect.top + dy;
+      final newWidth = (rect.width + dx).clamp(minSize, double.infinity);
+      final newHeight = (rect.height - dy).clamp(minSize, double.infinity);
       return CropRect(
-        left: rect.left,
-        top: (rect.top + dy).clamp(0.0, rect.top + rect.height - 0.1),
-        width: (rect.width + dx).clamp(0.1, 1.0 - rect.left),
-        height: (rect.height - dy).clamp(0.1, 1.0),
-      );
+          left: rect.left, top: newTop, width: newWidth, height: newHeight);
     } else if (alignment == Alignment.bottomLeft) {
+      final newLeft = rect.left + dx;
+      final newWidth = (rect.width - dx).clamp(minSize, double.infinity);
+      final newHeight = (rect.height + dy).clamp(minSize, double.infinity);
       return CropRect(
-        left: (rect.left + dx).clamp(0.0, rect.left + rect.width - 0.1),
-        top: rect.top,
-        width: (rect.width - dx).clamp(0.1, 1.0),
-        height: (rect.height + dy).clamp(0.1, 1.0 - rect.top),
-      );
+          left: newLeft, top: rect.top, width: newWidth, height: newHeight);
     } else {
       // bottomRight
+      final newWidth = (rect.width + dx).clamp(minSize, double.infinity);
+      final newHeight = (rect.height + dy).clamp(minSize, double.infinity);
       return CropRect(
-        left: rect.left,
-        top: rect.top,
-        width: (rect.width + dx).clamp(0.1, 1.0 - rect.left),
-        height: (rect.height + dy).clamp(0.1, 1.0 - rect.top),
-      );
+          left: rect.left, top: rect.top, width: newWidth, height: newHeight);
     }
   }
 
-  /// Handle aspect-ratio-constrained dragging
+  /// Handle aspect-ratio-constrained dragging.
   CropRect _handleAspectRatioConstrainedDrag(
     CropRect rect,
     double dx,
@@ -653,19 +889,16 @@ class _CropOverlayState extends State<CropOverlay> {
   ) {
     final aspectRatio = _targetAspectRatio!;
 
-    // Use the larger absolute delta to determine scale change
     final absDx = dx.abs();
     final absDy = dy.abs();
 
     double scale;
     if (absDx > absDy) {
-      // Width change drives the resize
       scale = dx *
           (alignment == Alignment.topLeft || alignment == Alignment.bottomLeft
               ? -1
               : 1);
     } else {
-      // Height change drives the resize (convert to equivalent width change)
       scale = dy *
           aspectRatio *
           (alignment == Alignment.topLeft || alignment == Alignment.topRight
@@ -673,41 +906,28 @@ class _CropOverlayState extends State<CropOverlay> {
               : 1);
     }
 
-    // Calculate new dimensions maintaining aspect ratio
-    double newWidth = (rect.width + scale).clamp(0.1, 1.0);
+    double newWidth = (rect.width + scale).clamp(0.05, 1.0);
     double newHeight = newWidth / aspectRatio;
 
-    // Ensure height is also within bounds
-    if (newHeight > 1.0) {
-      newHeight = 1.0;
-      newWidth = newHeight * aspectRatio;
-    }
-    if (newHeight < 0.1) {
-      newHeight = 0.1;
+    if (newHeight < 0.05) {
+      newHeight = 0.05;
       newWidth = newHeight * aspectRatio;
     }
 
-    // Calculate new position based on anchor corner
     double newLeft = rect.left;
     double newTop = rect.top;
 
     if (alignment == Alignment.topLeft) {
-      // Anchor is bottom-right
       newLeft = rect.left + rect.width - newWidth;
       newTop = rect.top + rect.height - newHeight;
     } else if (alignment == Alignment.topRight) {
-      // Anchor is bottom-left
       newTop = rect.top + rect.height - newHeight;
     } else if (alignment == Alignment.bottomLeft) {
-      // Anchor is top-right
       newLeft = rect.left + rect.width - newWidth;
     }
-    // bottomRight: anchor is top-left, no position change needed
 
-    // Clamp to bounds
-    newLeft = newLeft.clamp(0.0, 1.0 - newWidth);
-    newTop = newTop.clamp(0.0, 1.0 - newHeight);
-
+    // The raycasting constraint in _constrain() will tighten to the actual
+    // image boundary; no AABB pre-clamp needed here.
     return CropRect(
       left: newLeft,
       top: newTop,
@@ -724,6 +944,7 @@ class _CropOverlayState extends State<CropOverlay> {
       left: x - (isHorizontal ? 15 : 4),
       top: y - (isHorizontal ? 4 : 15),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onPanStart: (details) {
           _dragStartRect = _currentRect;
         },
@@ -735,46 +956,52 @@ class _CropOverlayState extends State<CropOverlay> {
 
           setState(() {
             var newRect = _dragStartRect!;
+            const minSize = 0.05;
 
             if (edge == 'top') {
+              final newTop = newRect.top + dy;
+              final newHeight =
+                  (newRect.height - dy).clamp(minSize, double.infinity);
               newRect = CropRect(
-                left: newRect.left,
-                top: (newRect.top + dy)
-                    .clamp(0.0, newRect.top + newRect.height - 0.1),
-                width: newRect.width,
-                height: (newRect.height - dy).clamp(0.1, 1.0),
-              );
+                  left: newRect.left,
+                  top: newTop,
+                  width: newRect.width,
+                  height: newHeight);
             } else if (edge == 'bottom') {
+              final newHeight =
+                  (newRect.height + dy).clamp(minSize, double.infinity);
               newRect = CropRect(
-                left: newRect.left,
-                top: newRect.top,
-                width: newRect.width,
-                height: (newRect.height + dy).clamp(0.1, 1.0 - newRect.top),
-              );
+                  left: newRect.left,
+                  top: newRect.top,
+                  width: newRect.width,
+                  height: newHeight);
             } else if (edge == 'left') {
+              final newLeft = newRect.left + dx;
+              final newWidth =
+                  (newRect.width - dx).clamp(minSize, double.infinity);
               newRect = CropRect(
-                left: (newRect.left + dx)
-                    .clamp(0.0, newRect.left + newRect.width - 0.1),
-                top: newRect.top,
-                width: (newRect.width - dx).clamp(0.1, 1.0),
-                height: newRect.height,
-              );
+                  left: newLeft,
+                  top: newRect.top,
+                  width: newWidth,
+                  height: newRect.height);
             } else if (edge == 'right') {
+              final newWidth =
+                  (newRect.width + dx).clamp(minSize, double.infinity);
               newRect = CropRect(
-                left: newRect.left,
-                top: newRect.top,
-                width: (newRect.width + dx).clamp(0.1, 1.0 - newRect.left),
-                height: newRect.height,
-              );
+                  left: newRect.left,
+                  top: newRect.top,
+                  width: newWidth,
+                  height: newRect.height);
             }
 
-            _currentRect = newRect;
-            _dragStartRect = newRect;
+            _currentRect = _constrain(newRect);
+            _dragStartRect = _currentRect;
           });
           widget.onCropChanged(_currentRect!);
         },
         onPanEnd: (_) {
           _dragStartRect = null;
+          widget.onCropDragEnd?.call();
         },
         child: Container(
           width: isHorizontal ? 30 : 8,

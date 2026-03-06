@@ -191,6 +191,16 @@ class CropRect {
       height: height ?? this.height,
     );
   }
+
+  /// Linearly interpolate between two crop rects.
+  static CropRect lerp(CropRect a, CropRect b, double t) {
+    return CropRect(
+      left: a.left + (b.left - a.left) * t,
+      top: a.top + (b.top - a.top) * t,
+      width: a.width + (b.width - a.width) * t,
+      height: a.height + (b.height - a.height) * t,
+    );
+  }
 }
 
 enum AspectRatioPreset {
