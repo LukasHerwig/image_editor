@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -6,39 +7,189 @@ import 'package:image/image.dart' as img;
 import 'package:monogram_image_editor/src/models/image_editor_state.dart';
 
 class ImageProcessing {
-  /// Apply all edits to the image and return the processed image
+  /// Apply all edits to the image and return the processed image.
+  ///
+  /// Uses a WYSIWYG PictureRecorder approach when display size information is
+  /// available, guaranteeing pixel-perfect accuracy between preview and output.
+  /// Falls back to pixel-based processing otherwise.
   static Future<File> processImage({
     required File originalFile,
     required ImageEditorState state,
   }) async {
-    // Read the original image
-    final bytes = await originalFile.readAsBytes();
+    if (state.displaySize != null) {
+      return _processImageWysiwyg(
+        bytes: await originalFile.readAsBytes(),
+        state: state,
+      );
+    }
+    return _processImageFallback(originalFile: originalFile, state: state);
+  }
+
+  /// Process from raw bytes (for imageBytes: path).
+  static Future<File> processImageFromBytes({
+    required Uint8List bytes,
+    required ImageEditorState state,
+  }) async {
+    if (state.displaySize != null) {
+      return _processImageWysiwyg(bytes: bytes, state: state);
+    }
+    return _processImageFallbackFromBytes(bytes: bytes, state: state);
+  }
+
+  // ---------------------------------------------------------------------------
+  // WYSIWYG renderer — reproduces the exact pixel content visible in the crop
+  // window by replaying the same transform chain used by the display layer.
+  //
+  // Transform chain (image widget coords → viewport screen coords):
+  //   1. Image drawn at BoxFit.contain rect  (fitOffX, fitOffY, fitW, fitH)
+  //   2. Transform widget:  T(vpCenter) × S(minScale) × R(angle) × flip × T(-vpCenter)
+  //   3. InteractiveViewer: T(pan) × S(userScale)
+  //
+  // To capture the crop window [cropL,cropT,cropW,cropH] at native resolution,
+  // the canvas accumulates:
+  //   S(s) × T(-cropL,-cropT) × T_iv × T_widget
+  // where s = outputW / cropW  (output pixels per viewport pixel)
+  // ---------------------------------------------------------------------------
+  static Future<File> _processImageWysiwyg({
+    required Uint8List bytes,
+    required ImageEditorState state,
+  }) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final uiImage = frame.image;
+
+    final imgW = uiImage.width.toDouble();
+    final imgH = uiImage.height.toDouble();
+    final vpW = state.displaySize!.width;
+    final vpH = state.displaySize!.height;
+
+    // ── BoxFit.contain metrics ──────────────────────────────────────────────
+    final fitScale = math.min(vpW / imgW, vpH / imgH);
+    final fitW = imgW * fitScale;
+    final fitH = imgH * fitScale;
+    final fitOffX = (vpW - fitW) / 2;
+    final fitOffY = (vpH - fitH) / 2;
+
+    // ── Crop window in viewport pixels ──────────────────────────────────────
+    // Default to the fitted image rect if no crop is set.
+    final cropL = (state.cropRect?.left ?? fitOffX / vpW) * vpW;
+    final cropT = (state.cropRect?.top ?? fitOffY / vpH) * vpH;
+    final cropW = (state.cropRect?.width ?? fitW / vpW) * vpW;
+    final cropH = (state.cropRect?.height ?? fitH / vpH) * vpH;
+
+    // ── Output size at native image resolution ──────────────────────────────
+    // totalMag: how many viewport pixels one image pixel covers at this zoom.
+    final minScaleForRot = state.minScaleForRotation;
+    final userScale = state.scale;
+    final totalMag = fitScale * minScaleForRot * userScale;
+    final outputW = math.max(1, (cropW / totalMag).round());
+    final outputH = math.max(1, (cropH / totalMag).round());
+
+    // Render scale: output pixels per viewport pixel.
+    final s = outputW / cropW;
+
+    // ── Rebuild the single unified Transform matrix ──────────────────────────
+    // Matches Transform(alignment: Alignment.center,
+    //   transform: T(pan) * S(totalScale) * R(angle) * S(flip))
+    // which expands with the alignment pivot as:
+    //   T(vpCenter + pan) * S(totalScale) * R(angle) * S(flip) * T(-vpCenter)
+    //
+    // This form correctly reconstructs what the user sees for ALL combinations
+    // of rotation, userScale and panOffset (the old two-matrix approach was
+    // incorrect when userScale ≠ 1.0).
+    final totalRotation = state.totalRotation;
+    final flipH = state.flipHorizontal;
+    final flipV = state.flipVertical;
+    final totalDisplayScale = minScaleForRot * userScale;
+    final fullMatrix = Matrix4.identity()
+      ..translate(vpW / 2 + state.panOffset.dx, vpH / 2 + state.panOffset.dy)
+      ..scale(totalDisplayScale)
+      ..rotateZ(totalRotation * math.pi / 180)
+      ..scale(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0)
+      ..translate(-vpW / 2, -vpH / 2);
+
+    // ── Render ───────────────────────────────────────────────────────────────
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(
+      recorder,
+      Rect.fromLTWH(0, 0, outputW.toDouble(), outputH.toDouble()),
+    );
+
+    // output_coords = S(s) × T(-cropL, -cropT) × fullMatrix × widget_coords
+    canvas.scale(s);
+    canvas.translate(-cropL, -cropT);
+    canvas.transform(fullMatrix.storage);
+
+    // Color adjustments via paint colorFilter (matches live preview exactly).
+    final paint = Paint()..filterQuality = FilterQuality.high;
+    if (state.brightness != 0 ||
+        state.contrast != 1.0 ||
+        state.saturation != 1.0) {
+      paint.colorFilter = ColorFilterMatrix.combined(
+        brightness: state.brightness,
+        contrast: state.contrast,
+        saturation: state.saturation,
+      );
+    }
+
+    // Draw the image at its BoxFit.contain destination rect.
+    canvas.drawImageRect(
+      uiImage,
+      Rect.fromLTWH(0, 0, imgW, imgH),
+      Rect.fromLTWH(fitOffX, fitOffY, fitW, fitH),
+      paint,
+    );
+
+    final picture = recorder.endRecording();
+    final outputImage = await picture.toImage(outputW, outputH);
+    final pngData =
+        await outputImage.toByteData(format: ui.ImageByteFormat.png);
+    if (pngData == null) throw Exception('Failed to encode rendered image');
+
+    final tempDir = Directory.systemTemp;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final tempFile = File('${tempDir.path}/edited_$timestamp.png');
+    await tempFile.writeAsBytes(pngData.buffer.asUint8List());
+    return tempFile;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fallback: pixel-based processing (used only when displaySize is unavailable)
+  // NOTE: This path is intentionally simple and does NOT account for zoom/pan.
+  // ---------------------------------------------------------------------------
+  static Future<File> _processImageFallback({
+    required File originalFile,
+    required ImageEditorState state,
+  }) async {
+    return _processImageFallbackFromBytes(
+      bytes: await originalFile.readAsBytes(),
+      state: state,
+    );
+  }
+
+  static Future<File> _processImageFallbackFromBytes({
+    required Uint8List bytes,
+    required ImageEditorState state,
+  }) async {
     img.Image? image = img.decodeImage(bytes);
+    if (image == null) throw Exception('Failed to decode image');
 
-    if (image == null) {
-      throw Exception('Failed to decode image');
-    }
-
-    // Apply crop if set
-    if (state.cropRect != null) {
-      image = _applyCrop(image, state.cropRect!);
-    }
-
-    // Apply rotation (both 90-degree and fine rotation)
-    final totalRotation = state.rotation + state.fineRotation;
+    // Rotation first, then crop (correct order).
+    final totalRotation = state.totalRotation;
     if (totalRotation != 0) {
       image = _applyRotation(image, totalRotation);
     }
 
-    // Apply flips
-    if (state.flipHorizontal) {
-      image = img.flipHorizontal(image);
-    }
-    if (state.flipVertical) {
-      image = img.flipVertical(image);
+    // Crop using image-space coordinates.
+    // NOTE: In the fallback path cropRect fractions are applied to image dims,
+    // which is only accurate when the image fills the full viewport.
+    if (state.cropRect != null) {
+      image = _applyCrop(image, state.cropRect!);
     }
 
-    // Apply color adjustments
+    if (state.flipHorizontal) image = img.flipHorizontal(image);
+    if (state.flipVertical) image = img.flipVertical(image);
+
     image = _applyColorAdjustments(
       image,
       brightness: state.brightness,
@@ -46,13 +197,10 @@ class ImageProcessing {
       saturation: state.saturation,
     );
 
-    // Save to temporary file
     final tempDir = Directory.systemTemp;
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final tempFile = File('${tempDir.path}/edited_image_$timestamp.jpg');
-
+    final tempFile = File('${tempDir.path}/edited_$timestamp.jpg');
     await tempFile.writeAsBytes(img.encodeJpg(image, quality: 95));
-
     return tempFile;
   }
 
@@ -66,13 +214,12 @@ class ImageProcessing {
       image,
       x: x,
       y: y,
-      width: width,
-      height: height,
+      width: width.clamp(1, image.width - x),
+      height: height.clamp(1, image.height - y),
     );
   }
 
   static img.Image _applyRotation(img.Image image, double degrees) {
-    // For 90-degree increments, use optimized rotation
     if (degrees % 90 == 0) {
       final times = ((degrees / 90) % 4).toInt();
       for (int i = 0; i < times; i++) {
@@ -80,8 +227,6 @@ class ImageProcessing {
       }
       return image;
     }
-
-    // For arbitrary angles (copyRotate expects degrees, not radians)
     return img.copyRotate(image, angle: degrees);
   }
 
@@ -91,22 +236,16 @@ class ImageProcessing {
     required double contrast,
     required double saturation,
   }) {
-    // Apply brightness (-100 to 100 -> -255 to 255)
     if (brightness != 0) {
       final brightnessValue = (brightness * 2.55).toInt();
       image = img.adjustColor(image, brightness: brightnessValue);
     }
-
-    // Apply contrast (0.5 to 2.0)
     if (contrast != 1.0) {
       image = img.adjustColor(image, contrast: contrast);
     }
-
-    // Apply saturation (0.0 to 2.0)
     if (saturation != 1.0) {
       image = img.adjustColor(image, saturation: saturation);
     }
-
     return image;
   }
 
