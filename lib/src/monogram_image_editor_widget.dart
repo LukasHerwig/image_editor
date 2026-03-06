@@ -215,30 +215,51 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
   }
 
   Widget _buildTabSelector(ImageEditorState state) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildTab(
-            icon: CupertinoIcons.crop,
-            label: 'Crop',
-            isSelected: state.currentTab == EditorTab.crop,
-            onTap: () => _controller.setTab(EditorTab.crop),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
+      child: Center(
+        child: IntrinsicWidth(
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.circular(50),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  blurRadius: 30,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildTab(
+                    icon: CupertinoIcons.crop,
+                    label: 'Crop',
+                    isSelected: state.currentTab == EditorTab.crop,
+                    onTap: () => _controller.setTab(EditorTab.crop),
+                  ),
+                  _buildTab(
+                    icon: CupertinoIcons.slider_horizontal_3,
+                    label: 'Adjust',
+                    isSelected: state.currentTab == EditorTab.adjust,
+                    onTap: () => _controller.setTab(EditorTab.adjust),
+                  ),
+                  _buildTab(
+                    icon: CupertinoIcons.rotate_right,
+                    label: 'Rotate',
+                    isSelected: state.currentTab == EditorTab.rotate,
+                    onTap: () => _controller.setTab(EditorTab.rotate),
+                  ),
+                ],
+              ),
+            ),
           ),
-          _buildTab(
-            icon: CupertinoIcons.slider_horizontal_3,
-            label: 'Adjust',
-            isSelected: state.currentTab == EditorTab.adjust,
-            onTap: () => _controller.setTab(EditorTab.adjust),
-          ),
-          _buildTab(
-            icon: CupertinoIcons.rotate_right,
-            label: 'Rotate',
-            isSelected: state.currentTab == EditorTab.rotate,
-            onTap: () => _controller.setTab(EditorTab.rotate),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -252,10 +273,10 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2C2C2E) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(50),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -263,14 +284,14 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
             Icon(
               icon,
               color: isSelected ? CupertinoColors.systemBlue : Colors.white70,
-              size: 24,
+              size: 20,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               label,
               style: TextStyle(
                 color: isSelected ? CupertinoColors.systemBlue : Colors.white70,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
