@@ -6,7 +6,6 @@ import 'package:monogram_image_editor/src/models/image_editor_state.dart';
 import 'package:monogram_image_editor/src/widgets/adjustment_controls.dart';
 import 'package:monogram_image_editor/src/widgets/crop_controls.dart';
 import 'package:monogram_image_editor/src/widgets/image_canvas.dart';
-import 'package:monogram_image_editor/src/widgets/rotation_controls.dart';
 import 'package:monogram_image_editor/src/utils/image_processing.dart';
 import 'package:flutter/material.dart';
 
@@ -122,7 +121,7 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
           child: Column(
             children: [
               // Header
-              _buildHeader(context),
+              _buildHeader(context, state),
 
               // Image canvas
               Expanded(
@@ -156,59 +155,213 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, ImageEditorState state) {
     return Container(
       color: const Color(0xFF1C1C1E),
       child: SafeArea(
         bottom: false,
-        child: Container(
-          height: 44,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                onPressed: _isSaving ? null : widget.onCancel,
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(
-                    color: CupertinoColors.systemBlue,
-                    fontSize: 17,
-                  ),
-                ),
-              ),
-              CupertinoButton(
-                // reset image to default state
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                onPressed: _isSaving ? null : () => _controller.reset(),
-                child: const Text(
-                  'Reset',
-                  style: TextStyle(
-                    color: CupertinoColors.systemBlue,
-                    fontSize: 17,
-                  ),
-                ),
-              ),
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                onPressed: _isSaving ? null : _handleSave,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CupertinoActivityIndicator(),
-                      )
-                    : const Text(
-                        'Done',
-                        style: TextStyle(
-                          color: CupertinoColors.systemBlue,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 44,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    onPressed: _isSaving ? null : widget.onCancel,
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(
+                        color: CupertinoColors.systemBlue,
+                        fontSize: 17,
                       ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    onPressed: _isSaving ? null : () => _controller.reset(),
+                    child: const Text(
+                      'Reset',
+                      style: TextStyle(
+                        color: CupertinoColors.systemBlue,
+                        fontSize: 17,
+                      ),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    onPressed: _isSaving ? null : _handleSave,
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CupertinoActivityIndicator(),
+                          )
+                        : const Text(
+                            'Done',
+                            style: TextStyle(
+                              color: CupertinoColors.systemBlue,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            if (state.currentTab == EditorTab.crop) _buildCropToolbar(state),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Compact single-row crop toolbar: rotate/flip icons on the left,
+  // aspect ratio picker icon on the right.
+  Widget _buildCropToolbar(ImageEditorState state) {
+    return SizedBox(
+      height: 44,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            // — rotate 90°
+            _buildToolIcon(
+              icon: CupertinoIcons.rotate_left,
+              onTap: _controller.rotate90,
+            ),
+            const SizedBox(width: 4),
+            // — flip horizontal
+            _buildToolIcon(
+              icon: CupertinoIcons.arrow_left_right,
+              isActive: state.flipHorizontal,
+              onTap: _controller.flipHorizontal,
+            ),
+            const SizedBox(width: 4),
+            // — flip vertical
+            _buildToolIcon(
+              icon: CupertinoIcons.arrow_up_down,
+              isActive: state.flipVertical,
+              onTap: _controller.flipVertical,
+            ),
+            const Spacer(),
+            // — aspect ratio picker
+            GestureDetector(
+              onTap: () => _showAspectRatioPicker(state),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: state.aspectRatioPreset != AspectRatioPreset.free
+                      ? CupertinoColors.systemBlue.withValues(alpha: 0.2)
+                      : const Color(0xFF3A3A3C),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: state.aspectRatioPreset != AspectRatioPreset.free
+                        ? CupertinoColors.systemBlue
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      CupertinoIcons.crop,
+                      size: 16,
+                      color: state.aspectRatioPreset != AspectRatioPreset.free
+                          ? CupertinoColors.systemBlue
+                          : Colors.white70,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      state.aspectRatioPreset.label,
+                      style: TextStyle(
+                        color: state.aspectRatioPreset != AspectRatioPreset.free
+                            ? CupertinoColors.systemBlue
+                            : Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Icon(
+                      CupertinoIcons.chevron_down,
+                      size: 11,
+                      color: state.aspectRatioPreset != AspectRatioPreset.free
+                          ? CupertinoColors.systemBlue
+                          : Colors.white38,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToolIcon({
+    required IconData icon,
+    required VoidCallback onTap,
+    bool isActive = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color:
+              isActive ? CupertinoColors.systemBlue : const Color(0xFF3A3A3C),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: Colors.white, size: 18),
+      ),
+    );
+  }
+
+  void _showAspectRatioPicker(ImageEditorState state) {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: AspectRatioPreset.values.map((preset) {
+          final isSelected = state.aspectRatioPreset == preset;
+          return CupertinoActionSheetAction(
+            onPressed: () {
+              _controller.setAspectRatioPreset(preset);
+              Navigator.pop(context);
+            },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  preset.label,
+                  style: TextStyle(
+                    color: isSelected
+                        ? CupertinoColors.systemBlue
+                        : CupertinoColors.label,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+                if (isSelected) ...[
+                  const SizedBox(width: 8),
+                  const Icon(
+                    CupertinoIcons.checkmark,
+                    size: 16,
+                    color: CupertinoColors.systemBlue,
+                  ),
+                ],
+              ],
+            ),
+          );
+        }).toList(),
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
       ),
     );
@@ -248,12 +401,6 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
                     label: 'Adjust',
                     isSelected: state.currentTab == EditorTab.adjust,
                     onTap: () => _controller.setTab(EditorTab.adjust),
-                  ),
-                  _buildTab(
-                    icon: CupertinoIcons.rotate_right,
-                    label: 'Rotate',
-                    isSelected: state.currentTab == EditorTab.rotate,
-                    onTap: () => _controller.setTab(EditorTab.rotate),
                   ),
                 ],
               ),
@@ -308,7 +455,7 @@ class _MonogramImageEditorState extends State<MonogramImageEditor> {
       case EditorTab.adjust:
         return AdjustmentControls(controller: _controller);
       case EditorTab.rotate:
-        return RotationControls(controller: _controller);
+        return const SizedBox.shrink();
     }
   }
 }
