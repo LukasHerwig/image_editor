@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
-import 'package:monogram_image_editor/src/models/image_editor_state.dart';
+import 'package:z_image_editor/src/models/image_editor_state.dart';
 
 class ImageProcessing {
   /// Apply all edits to the image and return the processed image.
@@ -102,11 +102,16 @@ class ImageProcessing {
     final flipV = state.flipVertical;
     final totalDisplayScale = minScaleForRot * userScale;
     final fullMatrix = Matrix4.identity()
-      ..translate(vpW / 2 + state.panOffset.dx, vpH / 2 + state.panOffset.dy)
-      ..scale(totalDisplayScale)
+      ..translateByDouble(
+        vpW / 2 + state.panOffset.dx,
+        vpH / 2 + state.panOffset.dy,
+        0.0,
+        1.0,
+      )
+      ..scaleByDouble(totalDisplayScale, totalDisplayScale, 1.0, 1.0)
       ..rotateZ(totalRotation * math.pi / 180)
-      ..scale(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0)
-      ..translate(-vpW / 2, -vpH / 2);
+      ..scaleByDouble(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0, 1.0)
+      ..translateByDouble(-vpW / 2, -vpH / 2, 0.0, 1.0);
 
     // ── Render ───────────────────────────────────────────────────────────────
     final recorder = ui.PictureRecorder();

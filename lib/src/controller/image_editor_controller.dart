@@ -2,8 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:monogram_image_editor/image_editor.dart';
-import 'package:monogram_image_editor/monogram_image_editor.dart';
+import 'package:z_image_editor/image_editor.dart';
 
 class ImageEditorController extends ChangeNotifier {
   ImageEditorState _state = const ImageEditorState();
@@ -281,7 +280,7 @@ class ImageEditorController extends ChangeNotifier {
 
     // If the image fills (or overflows) the viewport, the crop can go anywhere.
     if (scaledW >= vpSize.width - 0.5 && scaledH >= vpSize.height - 0.5) {
-      return CropRect(left: 0, top: 0, width: 1, height: 1);
+      return const CropRect(left: 0, top: 0, width: 1, height: 1);
     }
 
     return CropRect(

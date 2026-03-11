@@ -1,4 +1,4 @@
-# Monogram Image Editor — Architecture & Technical Reference
+# Z Image Editor — Architecture & Technical Reference
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@
 
 ## 1. What the Editor Does
 
-`MonogramImageEditor` is a Flutter widget package that gives the host app a full-screen, iOS Photos-style image editor. It accepts either a `File` or raw `Uint8List` and returns a processed `File` via `onSave`.
+`ZImageEditor` is a Flutter widget package that gives the host app a full-screen, iOS Photos-style image editor. It accepts either a `File` or raw `Uint8List` and returns a processed `File` via `onSave`.
 
 **Crop tab**
 
@@ -53,8 +53,8 @@
 
 ```
 lib/
-├── image_editor.dart                    — public barrel (re-exports MonogramImageEditor)
-├── monogram_image_editor.dart           — package entry point
+├── image_editor.dart                    — public barrel (re-exports ZImageEditor)
+├── z_image_editor.dart                  — package entry point
 └── src/
     ├── models/
     │   └── image_editor_state.dart      — immutable state: all fields + enums + CropRect
@@ -64,7 +64,7 @@ lib/
     │   ├── transformation_service.dart  — all coordinate math (raycasting, clamp, coord conversion)
     │   └── image_processing.dart       — WYSIWYG export renderer + color matrix builder
     └── widgets/
-        ├── monogram_image_editor_widget.dart — root widget (scaffold, header, tab bar)
+        ├── z_image_editor_widget.dart   — root widget (scaffold, header, tab bar)
         ├── image_canvas.dart           — interactive canvas + CropOverlay + gesture handling
         ├── crop_controls.dart          — crop tab bottom panel (fine rotation, aspect ratios)
         ├── adjustment_controls.dart    — adjust tab bottom panel (brightness/contrast/saturation)
@@ -79,7 +79,7 @@ lib/
 | `image_editor_controller.dart`      | All state mutations, animation coordination, geometric invariants   | Rendering; coordinate math details  |
 | `transformation_service.dart`       | Every coordinate-space conversion and geometric clamp               | State, UI, animation                |
 | `image_processing.dart`             | Computing the final exported pixel image                            | Live preview, gestures              |
-| `monogram_image_editor_widget.dart` | Scaffold layout, header, tab bar, save flow                         | Canvas rendering, gesture handling  |
+| `z_image_editor_widget.dart` | Scaffold layout, header, tab bar, save flow                         | Canvas rendering, gesture handling  |
 | `image_canvas.dart`                 | Rendering the transformed image, crop overlay, all gesture handlers | Bottom controls, export             |
 | `crop_controls.dart`                | Crop tab UI (slider, aspect chip row)                               | Actually constraining the crop rect |
 | `adjustment_controls.dart`          | Brightness/contrast/saturation sliders                              | Color math                          |

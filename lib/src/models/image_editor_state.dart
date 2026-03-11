@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:monogram_image_editor/image_editor.dart';
+import 'package:z_image_editor/image_editor.dart';
 
 /// State model for the image editor
 class ImageEditorState {

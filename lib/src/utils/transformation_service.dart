@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:monogram_image_editor/src/models/image_editor_state.dart'
+import 'package:z_image_editor/src/models/image_editor_state.dart'
     show CropRect;
 
 /// Centralized service for all transformation math.
@@ -352,12 +352,16 @@ class TransformationService {
 
     // If both sides are violated the crop is larger than the image — leave as-is.
     double dImgX = 0, dImgY = 0;
-    if (needRight > 0 && needLeft == 0)
+    if (needRight > 0 && needLeft == 0) {
       dImgX = needRight;
-    else if (needLeft > 0 && needRight == 0) dImgX = -needLeft;
-    if (needDown > 0 && needUp == 0)
+    } else if (needLeft > 0 && needRight == 0) {
+      dImgX = -needLeft;
+    }
+    if (needDown > 0 && needUp == 0) {
       dImgY = needDown;
-    else if (needUp > 0 && needDown == 0) dImgY = -needUp;
+    } else if (needUp > 0 && needDown == 0) {
+      dImgY = -needUp;
+    }
 
     if (dImgX == 0 && dImgY == 0) return pan;
 

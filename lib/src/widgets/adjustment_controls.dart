@@ -1,4 +1,4 @@
-import 'package:monogram_image_editor/src/controller/image_editor_controller.dart';
+import 'package:z_image_editor/src/controller/image_editor_controller.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -7,9 +7,9 @@ class AdjustmentControls extends StatelessWidget {
   final ImageEditorController controller;
 
   const AdjustmentControls({
-    Key? key,
+    super.key,
     required this.controller,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -101,7 +101,8 @@ class AdjustmentControls extends StatelessWidget {
                   activeTrackColor: CupertinoColors.systemBlue,
                   inactiveTrackColor: Colors.white24,
                   thumbColor: Colors.white,
-                  overlayColor: CupertinoColors.systemBlue.withOpacity(0.2),
+                  overlayColor:
+                      CupertinoColors.systemBlue.withValues(alpha: 0.2),
                   trackHeight: 2,
                   thumbShape:
                       const RoundSliderThumbShape(enabledThumbRadius: 6),

@@ -1,24 +1,21 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:monogram_image_editor/image_editor.dart';
-import 'package:monogram_image_editor/monogram_image_editor.dart';
+import 'package:z_image_editor/image_editor.dart';
 
 /// Crop controls with aspect ratio presets
 class CropControls extends StatefulWidget {
   final ImageEditorController controller;
 
   const CropControls({
-    Key? key,
+    super.key,
     required this.controller,
-  }) : super(key: key);
+  });
 
   @override
   State<CropControls> createState() => _CropControlsState();
 }
 
 class _CropControlsState extends State<CropControls> {
-  AspectRatioPreset _selectedRatio = AspectRatioPreset.free;
-
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -74,8 +71,8 @@ class _CropControlsState extends State<CropControls> {
                               activeTrackColor: CupertinoColors.systemBlue,
                               inactiveTrackColor: Colors.white24,
                               thumbColor: Colors.white,
-                              overlayColor:
-                                  CupertinoColors.systemBlue.withOpacity(0.2),
+                              overlayColor: CupertinoColors.systemBlue
+                                  .withValues(alpha: 0.2),
                               trackHeight: 2,
                               thumbShape: const RoundSliderThumbShape(
                                   enabledThumbRadius: 6),
@@ -123,7 +120,7 @@ class _CropControlsState extends State<CropControls> {
                 decoration: BoxDecoration(
                   color: isSelected
                       ? CupertinoColors.systemBlue
-                      : Colors.white.withOpacity(0.1),
+                      : Colors.white.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: isSelected

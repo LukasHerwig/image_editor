@@ -2,19 +2,19 @@ import 'dart:io';
 import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:monogram_image_editor/monogram_image_editor.dart';
+import 'package:z_image_editor/z_image_editor.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Monogram Image Editor Example',
+      title: 'Z Image Editor Example',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({Key? key}) : super(key: key);
+  const HomePage({super.key});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -43,7 +43,7 @@ class _HomePageState extends State<HomePage> {
         final editedImage = await Navigator.of(context).push<File>(
           MaterialPageRoute(
             fullscreenDialog: true,
-            builder: (context) => MonogramImageEditor(
+            builder: (context) => ZImageEditor(
               imageFile: File(pickedFile.path),
               onSave: (File edited) {
                 Navigator.of(context).pop(edited);
@@ -74,7 +74,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Monogram Image Editor'),
+        title: const Text('Z Image Editor'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
       ),

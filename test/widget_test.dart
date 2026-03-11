@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:monogram_image_editor/src/models/image_editor_state.dart';
+import 'package:z_image_editor/src/models/image_editor_state.dart';
 
 void main() {
   test('ImageEditorState initial values', () {

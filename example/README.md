@@ -1,3 +1,10 @@
-# monogram_image_editor_example
+# Z Image Editor Example
 
-A new Flutter project.
+This app demonstrates the `z_image_editor` package locally.
+
+Run it from the `example/` directory with:
+
+```bash
+flutter pub get
+flutter run
+```

@@ -1,5 +1,5 @@
-name: monogram_image_editor_example
-description: Example app demonstrating the Monogram Image Editor package
+name: z_image_editor_example
+description: Example app demonstrating the Z Image Editor package
 publish_to: 'none'
 version: 0.1.0
 
@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   image_picker: ^1.2.0
   cupertino_icons: ^1.0.0
-  monogram_image_editor:
+  z_image_editor:
     path: ../
 
 dev_dependencies:

@@ -3,8 +3,8 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:monogram_image_editor/image_editor.dart';
-import 'package:monogram_image_editor/src/utils/image_processing.dart';
+import 'package:z_image_editor/image_editor.dart';
+import 'package:z_image_editor/src/utils/image_processing.dart';
 
 /// Interactive image canvas that displays the image with all transformations
 class ImageCanvas extends StatefulWidget {
@@ -13,11 +13,11 @@ class ImageCanvas extends StatefulWidget {
   final ImageEditorController controller;
 
   const ImageCanvas({
-    Key? key,
+    super.key,
     this.imageFile,
     this.imageBytes,
     required this.controller,
-  }) : super(key: key);
+  });
 
   @override
   State<ImageCanvas> createState() => _ImageCanvasState();
@@ -326,7 +326,7 @@ class _ImageCanvasState extends State<ImageCanvas>
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           builder: (context, bgOpacity, child) => Container(
-            color: const Color(0xFF1C1C1E).withOpacity(bgOpacity),
+            color: const Color(0xFF1C1C1E).withValues(alpha: bgOpacity),
             child: child,
           ),
           child: LayoutBuilder(
@@ -368,12 +368,18 @@ class _ImageCanvasState extends State<ImageCanvas>
               final transformedImage = Transform(
                 alignment: Alignment.center,
                 transform: Matrix4.identity()
-                  ..translate(state.panOffset.dx, state.panOffset.dy, 0.0)
-                  ..scale(totalScale)
+                  ..translateByDouble(
+                    state.panOffset.dx,
+                    state.panOffset.dy,
+                    0.0,
+                    1.0,
+                  )
+                  ..scaleByDouble(totalScale, totalScale, 1.0, 1.0)
                   ..rotateZ(state.totalRotation * math.pi / 180)
-                  ..scale(
+                  ..scaleByDouble(
                     state.flipHorizontal ? -1.0 : 1.0,
                     state.flipVertical ? -1.0 : 1.0,
+                    1.0,
                     1.0,
                   ),
                 // SizedBox ensures the Image widget receives tight constraints
@@ -524,7 +530,7 @@ class CropOverlay extends StatefulWidget {
   final void Function(bool)? onHandleDragChanged;
 
   const CropOverlay({
-    Key? key,
+    super.key,
     this.cropRect,
     required this.imageSize,
     required this.viewportSize,
@@ -540,7 +546,7 @@ class CropOverlay extends StatefulWidget {
     this.onScaleUpdate,
     this.onScaleEnd,
     this.onHandleDragChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<CropOverlay> createState() => _CropOverlayState();
@@ -820,7 +826,7 @@ class _CropOverlayState extends State<CropOverlay> {
             border: Border.all(color: Colors.black, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 4,
               ),
             ],
@@ -1006,7 +1012,7 @@ class _CropOverlayState extends State<CropOverlay> {
             border: Border.all(color: Colors.black, width: 1),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 4,
               ),
             ],
@@ -1030,7 +1036,7 @@ class CropOverlayPainter extends CustomPainter {
     // Draw dark overlay around crop area (only when opacity > 0).
     if (overlayOpacity > 0) {
       final paint = Paint()
-        ..color = const Color(0xFF1C1C1E).withOpacity(overlayOpacity)
+        ..color = const Color(0xFF1C1C1E).withValues(alpha: overlayOpacity)
         ..style = PaintingStyle.fill;
 
       final path = Path()
@@ -1061,7 +1067,7 @@ class GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.5)
+      ..color = Colors.white.withValues(alpha: 0.5)
       ..strokeWidth = 1;
 
     // Draw rule of thirds grid
