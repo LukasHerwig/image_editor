@@ -5,6 +5,7 @@
   "packages": {
     ".": {
       "package-name": "z_image_editor",
+      "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md"
     }
   }
