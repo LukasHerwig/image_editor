@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:z_image_editor/image_editor.dart';
 
@@ -7,7 +6,7 @@ import 'package:z_image_editor/image_editor.dart';
 class CropControls extends StatefulWidget {
   final ImageEditorController controller;
 
-  const CropControls({Key? key, required this.controller}) : super(key: key);
+  const CropControls({super.key, required this.controller});
 
   @override
   State<CropControls> createState() => _CropControlsState();

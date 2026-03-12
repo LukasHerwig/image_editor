@@ -417,8 +417,8 @@ class _ImageCanvasState extends State<ImageCanvas>
                   adjustView = ClipRect(
                     child: Transform(
                       transform: Matrix4.identity()
-                        ..translate(dx, dy)
-                        ..scale(s),
+                        ..translateByDouble(dx, dy, 0.0, 1.0)
+                        ..scaleByDouble(s, s, 1.0, 1.0),
                       child: ClipRect(child: transformedImage),
                     ),
                   );
