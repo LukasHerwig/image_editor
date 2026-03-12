@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/Zero8-AB/z_image_editor/compare/v0.3.0...v0.4.0) (2026-03-12)
+
+
+### Features
+
+* add Android support with initial configuration and UI adjustments ([#15](https://github.com/Zero8-AB/z_image_editor/issues/15)) ([97280c8](https://github.com/Zero8-AB/z_image_editor/commit/97280c82e806b0d2af8fc2dbfc114ba08d83377b))
+* UI updates ([#11](https://github.com/Zero8-AB/z_image_editor/issues/11)) ([90255ab](https://github.com/Zero8-AB/z_image_editor/commit/90255ab8b024e22a8dee70263b5ec88b945f33c9))
+
 ## [0.3.0](https://github.com/Zero8-AB/z_image_editor/compare/v0.2.0...v0.3.0) (2026-03-11)
 
 
