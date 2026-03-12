@@ -99,17 +99,23 @@ class ImageProcessing {
     final flipH = state.flipHorizontal;
     final flipV = state.flipVertical;
     final totalDisplayScale = minScaleForRot * userScale;
+    // TODO: migrate back to ..translateByDouble / ..scaleByDouble once the
+    // consuming app has been updated to a Flutter version that ships
+    // vector_math ≥ 2.1.5 (those helpers were added in that release).
     final affineMatrix = Matrix4.identity()
-      ..translateByDouble(
+      // ignore: deprecated_member_use
+      ..translate(
         vpW / 2 + state.panOffset.dx,
         vpH / 2 + state.panOffset.dy,
         0.0,
-        1.0,
       )
-      ..scaleByDouble(totalDisplayScale, totalDisplayScale, 1.0, 1.0)
+      // ignore: deprecated_member_use
+      ..scale(totalDisplayScale, totalDisplayScale, 1.0)
       ..rotateZ(totalRotation * math.pi / 180)
-      ..scaleByDouble(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0, 1.0)
-      ..translateByDouble(-vpW / 2, -vpH / 2, 0.0, 1.0);
+      // ignore: deprecated_member_use
+      ..scale(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0)
+      // ignore: deprecated_member_use
+      ..translate(-vpW / 2, -vpH / 2, 0.0);
 
     // Prepend perspective tilt: tiltPivoted × affineMatrix.
     final Matrix4 fullMatrix;

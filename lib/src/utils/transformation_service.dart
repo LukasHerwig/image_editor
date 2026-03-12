@@ -35,10 +35,14 @@ class TransformationService {
       ..setEntry(3, 1, pV);
     // Wrap with pivot at viewport centre:
     //   result = T(cx,cy) × persp × T(-cx,-cy)
+    // TODO: migrate back to ..translateByDouble once the consuming app has
+    // been updated to a Flutter version that ships vector_math ≥ 2.1.5.
     return Matrix4.identity()
-      ..translateByDouble(vpCenter.dx, vpCenter.dy, 0.0, 1.0)
+      // ignore: deprecated_member_use
+      ..translate(vpCenter.dx, vpCenter.dy, 0.0)
       ..multiply(persp)
-      ..translateByDouble(-vpCenter.dx, -vpCenter.dy, 0.0, 1.0);
+      // ignore: deprecated_member_use
+      ..translate(-vpCenter.dx, -vpCenter.dy, 0.0);
   }
 
   /// Apply a 4×4 homogeneous matrix to a 2D offset with perspective division.
