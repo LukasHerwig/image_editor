@@ -74,16 +74,18 @@ class ImageEditorController extends ChangeNotifier {
   }
 
   void setTab(EditorTab tab) {
-    if (tab == EditorTab.crop) {
-      // Reset pan and zoom so the image is at its BoxFit.contain resting
-      // position when crop mode is entered.  This ensures _fittedImageBounds()
-      // (which uses pan=0, scale=1 assumptions) stays accurate.
+    if (tab == EditorTab.crop && _state.cropRect == null) {
+      // First time entering crop mode: reset pan/zoom so the image is at its
+      // BoxFit.contain resting position.  This ensures _fittedImageBounds()
+      // (which assumes pan=0, scale=1) stays accurate for the initial setup.
       _updateState(_state.copyWith(
         currentTab: tab,
         scale: 1.0,
         panOffset: Offset.zero,
       ));
     } else {
+      // Returning to crop with an existing crop rect: keep the current
+      // scale/pan — they are already valid and matched to the crop rect.
       _updateState(_state.copyWith(currentTab: tab));
     }
   }
