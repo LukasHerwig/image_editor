@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:z_image_editor/src/models/image_editor_state.dart';
+import 'package:z_image_editor/src/utils/transformation_service.dart';
 
 class ImageProcessing {
   /// Apply all edits to the image and return the processed image.
@@ -90,18 +91,15 @@ class ImageProcessing {
 
     // ── Rebuild the single unified Transform matrix ──────────────────────────
     // Matches Transform(alignment: Alignment.center,
-    //   transform: T(pan) * S(totalScale) * R(angle) * S(flip))
-    // which expands with the alignment pivot as:
-    //   T(vpCenter + pan) * S(totalScale) * R(angle) * S(flip) * T(-vpCenter)
-    //
-    // This form correctly reconstructs what the user sees for ALL combinations
-    // of rotation, userScale and panOffset (the old two-matrix approach was
-    // incorrect when userScale ≠ 1.0).
+    //   transform: perspRaw * T(pan) * S(totalScale) * R(angle) * S(flip))
+    // which expands with the centre pivot as:
+    //   T(vpCx) × perspRaw × T(pan) × S(ts) × R(a) × S(flip) × T(-vpCx)
+    // = tiltPivoted × affineFull
     final totalRotation = state.totalRotation;
     final flipH = state.flipHorizontal;
     final flipV = state.flipVertical;
     final totalDisplayScale = minScaleForRot * userScale;
-    final fullMatrix = Matrix4.identity()
+    final affineMatrix = Matrix4.identity()
       ..translateByDouble(
         vpW / 2 + state.panOffset.dx,
         vpH / 2 + state.panOffset.dy,
@@ -112,6 +110,20 @@ class ImageProcessing {
       ..rotateZ(totalRotation * math.pi / 180)
       ..scaleByDouble(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0, 1.0)
       ..translateByDouble(-vpW / 2, -vpH / 2, 0.0, 1.0);
+
+    // Prepend perspective tilt: tiltPivoted × affineMatrix.
+    final Matrix4 fullMatrix;
+    if (state.tiltHorizontal != 0 || state.tiltVertical != 0) {
+      final mTilt = TransformationService.buildPerspectiveMatrix(
+        state.tiltHorizontal,
+        state.tiltVertical,
+        Offset(vpW / 2, vpH / 2),
+      );
+      mTilt.multiply(affineMatrix); // mTilt = mTilt × affineMatrix
+      fullMatrix = mTilt;
+    } else {
+      fullMatrix = affineMatrix;
+    }
 
     // ── Render ───────────────────────────────────────────────────────────────
     final recorder = ui.PictureRecorder();

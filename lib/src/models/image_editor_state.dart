@@ -22,6 +22,10 @@ class ImageEditorState {
   final EditorTab currentTab;
   final bool isProcessing;
   final AspectRatioPreset aspectRatioPreset; // selected aspect ratio for crop
+  final double
+      tiltHorizontal; // keystone tilt −30…+30 (positive = right recedes)
+  final double
+      tiltVertical; // keystone tilt −30…+30 (positive = bottom recedes)
 
   const ImageEditorState({
     this.imageFile,
@@ -41,6 +45,8 @@ class ImageEditorState {
     this.currentTab = EditorTab.crop,
     this.isProcessing = false,
     this.aspectRatioPreset = AspectRatioPreset.free,
+    this.tiltHorizontal = 0.0,
+    this.tiltVertical = 0.0,
   });
 
   ImageEditorState copyWith({
@@ -62,6 +68,8 @@ class ImageEditorState {
     EditorTab? currentTab,
     bool? isProcessing,
     AspectRatioPreset? aspectRatioPreset,
+    double? tiltHorizontal,
+    double? tiltVertical,
   }) {
     return ImageEditorState(
       imageFile: imageFile ?? this.imageFile,
@@ -81,6 +89,8 @@ class ImageEditorState {
       currentTab: currentTab ?? this.currentTab,
       isProcessing: isProcessing ?? this.isProcessing,
       aspectRatioPreset: aspectRatioPreset ?? this.aspectRatioPreset,
+      tiltHorizontal: tiltHorizontal ?? this.tiltHorizontal,
+      tiltVertical: tiltVertical ?? this.tiltVertical,
     );
   }
 
@@ -90,6 +100,8 @@ class ImageEditorState {
       saturation != 1.0 ||
       rotation != 0.0 ||
       fineRotation != 0.0 ||
+      tiltHorizontal != 0.0 ||
+      tiltVertical != 0.0 ||
       flipHorizontal ||
       cropRect != null ||
       scale != 1.0 ||

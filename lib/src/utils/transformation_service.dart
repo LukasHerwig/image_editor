@@ -7,6 +7,56 @@ import 'package:z_image_editor/src/models/image_editor_state.dart'
 /// Handles rotation-aware bounding box calculations, pan limits,
 /// and coordinate space conversions.
 class TransformationService {
+  // ── Perspective tilt ───────────────────────────────────────────────────────
+
+  /// Converts the -30…+30 tilt UI value to a Matrix4 perspective entry.
+  /// Tune this constant to adjust the visual strength of the tilt effect.
+  static const double kTiltFactor = 0.000025;
+
+  /// Builds a perspective tilt matrix pivoted at [vpCenter].
+  ///
+  /// Uses homogeneous perspective entries M[3,0]=pH and M[3,1]=pV so that
+  /// a 2D point (x,y) maps to (x,y) / (1 + pH*(x-cx) + pV*(y-cy)) after
+  /// perspective division — creating a keystone/trapezoid distortion.
+  ///
+  /// Positive [tiltHorizontal]: right side recedes (gets smaller).
+  /// Positive [tiltVertical]:   bottom recedes (gets smaller).
+  static Matrix4 buildPerspectiveMatrix(
+    double tiltHorizontal,
+    double tiltVertical,
+    Offset vpCenter,
+  ) {
+    if (tiltHorizontal == 0 && tiltVertical == 0) return Matrix4.identity();
+    final pH = tiltHorizontal * kTiltFactor;
+    final pV = tiltVertical * kTiltFactor;
+    // Perspective at origin: w' = 1 + pH*x + pV*y
+    final persp = Matrix4.identity()
+      ..setEntry(3, 0, pH)
+      ..setEntry(3, 1, pV);
+    // Wrap with pivot at viewport centre:
+    //   result = T(cx,cy) × persp × T(-cx,-cy)
+    return Matrix4.identity()
+      ..translateByDouble(vpCenter.dx, vpCenter.dy, 0.0, 1.0)
+      ..multiply(persp)
+      ..translateByDouble(-vpCenter.dx, -vpCenter.dy, 0.0, 1.0);
+  }
+
+  /// Apply a 4×4 homogeneous matrix to a 2D offset with perspective division.
+  /// Treats the input point as [x, y, 0, 1] in homogeneous coordinates.
+  static Offset _applyPerspMatrix(Matrix4 m, Offset p) {
+    final s = m.storage; // column-major: s[col*4+row]
+    final x = p.dx;
+    final y = p.dy;
+    // Result of M * [x, y, 0, 1]:
+    final rx = s[0] * x + s[4] * y + s[12]; // s[8]*0 omitted
+    final ry = s[1] * x + s[5] * y + s[13];
+    final rw = s[3] * x + s[7] * y + s[15];
+    if (rw == 0) return p;
+    return Offset(rx / rw, ry / rw);
+  }
+
+  // ── Cache for memoization ──────────────────────────────────────────────────
+
   /// Cache for memoization
   double? _cachedRotation;
   double? _cachedImageAspectRatio;
@@ -219,41 +269,76 @@ class TransformationService {
     required Size imageSize,
     required Size viewportSize,
     required double rotationDegrees,
+    double tiltHorizontal = 0.0,
+    double tiltVertical = 0.0,
   }) {
-    final fitScale = math.min(
-      viewportSize.width / imageSize.width,
-      viewportSize.height / imageSize.height,
-    );
-    final fitW =
-        imageSize.width * fitScale; // fitted image width in viewport px
+    final vpW = viewportSize.width;
+    final vpH = viewportSize.height;
+    final fitScale = math.min(vpW / imageSize.width, vpH / imageSize.height);
+    final fitW = imageSize.width * fitScale;
     final fitH = imageSize.height * fitScale;
 
     final angleRad = rotationDegrees.abs() * math.pi / 180;
     final cosA = math.cos(angleRad).abs();
     final sinA = math.sin(angleRad).abs();
 
-    final cropW = cropRect.width * viewportSize.width;
-    final cropH = cropRect.height * viewportSize.height;
+    // The four crop corners in viewport space.
+    final corners = [
+      Offset(cropRect.left * vpW, cropRect.top * vpH),
+      Offset((cropRect.left + cropRect.width) * vpW, cropRect.top * vpH),
+      Offset(cropRect.left * vpW, (cropRect.top + cropRect.height) * vpH),
+      Offset((cropRect.left + cropRect.width) * vpW,
+          (cropRect.top + cropRect.height) * vpH),
+    ];
 
-    // The crop box corners, when rotated to image-axis-aligned space, span:
-    //   cropExtentX = cropW*cosA + cropH*sinA  (width footprint in image X)
-    //   cropExtentY = cropW*sinA + cropH*cosA  (height footprint in image Y)
-    // For the crop to fit inside the image we need:
-    //   cropExtentX / totalScale ≤ fitW  →  totalScale ≥ cropExtentX / fitW
-    //   cropExtentY / totalScale ≤ fitH  →  totalScale ≥ cropExtentY / fitH
-    final cropExtentX = cropW * cosA + cropH * sinA;
-    final cropExtentY = cropW * sinA + cropH * cosA;
+    // When tilt is active the affine pipeline operates on un-tilted viewport
+    // coordinates (step 0 of viewportToImageCoordinates).  At the near (magnified)
+    // end of the tilt the un-tilted positions are *farther* from the viewport
+    // centre than the raw viewport positions — so the formula must use the
+    // un-tilted extents, otherwise it underestimates the required minimum scale
+    // and allows pinch-zoom below the level where the image still covers the crop.
+    final List<Offset> effective;
+    if (tiltHorizontal != 0 || tiltVertical != 0) {
+      final vpCenter = Offset(vpW / 2, vpH / 2);
+      final mTilt =
+          buildPerspectiveMatrix(tiltHorizontal, tiltVertical, vpCenter);
+      final invTilt = Matrix4.inverted(mTilt);
+      effective = corners.map((c) => _applyPerspMatrix(invTilt, c)).toList();
+    } else {
+      effective = corners;
+    }
+
+    // Project each (un-tilted) corner onto the image's rotation axes to find
+    // the bounding extent the image must cover.  This is the tilt-aware
+    // generalisation of the original cropW*cosA+cropH*sinA formula.
+    final vpCx = vpW / 2;
+    final vpCy = vpH / 2;
+    double minU = double.infinity, maxU = double.negativeInfinity;
+    double minV = double.infinity, maxV = double.negativeInfinity;
+    for (final c in effective) {
+      final dx = c.dx - vpCx;
+      final dy = c.dy - vpCy;
+      final u = dx * cosA + dy * sinA;
+      final v = -dx * sinA + dy * cosA;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+    final cropExtentX = maxU - minU;
+    final cropExtentY = maxV - minV;
 
     final minTotalScale = math.max(
       fitW > 0 ? cropExtentX / fitW : 1.0,
       fitH > 0 ? cropExtentY / fitH : 1.0,
     );
 
-    // totalScale = minScaleForRotation * userScale → userScale = totalScale / minScaleForRotation
+    // totalScale = minScaleForRotation × userScale  →  userScale = totalScale / minScaleForRotation
     final minForRotation = calculateMinScaleForRotation(
       rotationDegrees: rotationDegrees,
       imageAspectRatio: imageSize.width / imageSize.height,
-      cropAspectRatio: cropW > 0 && cropH > 0 ? cropW / cropH : null,
+      cropAspectRatio:
+          cropExtentX > 0 && cropExtentY > 0 ? cropExtentX / cropExtentY : null,
     );
 
     // No floor at 1.0 — in crop mode it is intentional to allow values < 1.0.
@@ -306,6 +391,8 @@ class TransformationService {
     required double totalScale,
     required bool flipHorizontal,
     required bool flipVertical,
+    double tiltHorizontal = 0.0,
+    double tiltVertical = 0.0,
   }) {
     final vpW = viewportSize.width;
     final vpH = viewportSize.height;
@@ -333,6 +420,8 @@ class TransformationService {
         panOffset: pan,
         flipHorizontal: flipHorizontal,
         flipVertical: flipVertical,
+        tiltHorizontal: tiltHorizontal,
+        tiltVertical: tiltVertical,
       );
       if (ip.dx < minIX) minIX = ip.dx;
       if (ip.dx > maxIX) maxIX = ip.dx;
@@ -382,10 +471,10 @@ class TransformationService {
   }
 
   /// Convert a point from viewport coordinates to original image coordinates,
-  /// accounting for all transformations (rotation, scale, pan, flip).
+  /// accounting for all transformations (rotation, scale, pan, flip, tilt).
   ///
   /// The full rendering pipeline applied by the Transform widget + BoxFit.contain is:
-  ///   image-px → centre-relative → ×fitScale → flip → rotate → ×totalScale → +pan → +vpCentre
+  ///   image-px → centre-relative → ×fitScale → flip → rotate → ×totalScale → +pan → tilt → +vpCentre
   ///
   /// This function inverts that pipeline in reverse order.
   /// [scale] must be `minScaleForRotation * userScale` (i.e. `totalScale`),
@@ -399,11 +488,23 @@ class TransformationService {
     required Offset panOffset,
     required bool flipHorizontal,
     bool flipVertical = false,
+    double tiltHorizontal = 0.0,
+    double tiltVertical = 0.0,
   }) {
-    // 1. Remove viewport centre offset.
     final viewportCenter =
         Offset(viewportSize.width / 2, viewportSize.height / 2);
-    var point = viewportPoint - viewportCenter;
+
+    // 0. Remove perspective tilt (outermost forward transform).
+    Offset p = viewportPoint;
+    if (tiltHorizontal != 0 || tiltVertical != 0) {
+      final mTilt =
+          buildPerspectiveMatrix(tiltHorizontal, tiltVertical, viewportCenter);
+      final invTilt = Matrix4.inverted(mTilt);
+      p = _applyPerspMatrix(invTilt, p);
+    }
+
+    // 1. Remove viewport centre offset.
+    var point = p - viewportCenter;
 
     // 2. Remove pan.
     point = point - panOffset;
@@ -444,7 +545,7 @@ class TransformationService {
   /// Convert a point from original image coordinates to viewport coordinates.
   ///
   /// Forward pipeline (inverse of [viewportToImageCoordinates]):
-  ///   image-px → centre-relative → ×fitScale → flip → rotate → ×totalScale → +pan → +vpCentre
+  ///   image-px → centre-relative → ×fitScale → flip → rotate → ×totalScale → +pan → tilt → +vpCentre
   Offset imageToViewportCoordinates({
     required Offset imagePoint,
     required Size viewportSize,
@@ -454,6 +555,8 @@ class TransformationService {
     required Offset panOffset,
     required bool flipHorizontal,
     bool flipVertical = false,
+    double tiltHorizontal = 0.0,
+    double tiltVertical = 0.0,
   }) {
     // 1. Shift from top-left origin to image-centre-relative.
     final imageCenter = Offset(imageSize.width / 2, imageSize.height / 2);
@@ -490,6 +593,13 @@ class TransformationService {
         Offset(viewportSize.width / 2, viewportSize.height / 2);
     point = point + viewportCenter;
 
+    // 8. Apply perspective tilt (outermost forward transform).
+    if (tiltHorizontal != 0 || tiltVertical != 0) {
+      final mTilt =
+          buildPerspectiveMatrix(tiltHorizontal, tiltVertical, viewportCenter);
+      point = _applyPerspMatrix(mTilt, point);
+    }
+
     return point;
   }
 
@@ -510,6 +620,8 @@ class TransformationService {
     required Offset panOffset,
     required bool flipHorizontal,
     required bool flipVertical,
+    double tiltHorizontal = 0.0,
+    double tiltVertical = 0.0,
   }) {
     // 1. Project viewport → image-local px.
     final imagePoint = viewportToImageCoordinates(
@@ -521,6 +633,8 @@ class TransformationService {
       panOffset: panOffset,
       flipHorizontal: flipHorizontal,
       flipVertical: flipVertical,
+      tiltHorizontal: tiltHorizontal,
+      tiltVertical: tiltVertical,
     );
 
     // 2. Clamp to image bounds [0, W] × [0, H].
@@ -539,6 +653,8 @@ class TransformationService {
       panOffset: panOffset,
       flipHorizontal: flipHorizontal,
       flipVertical: flipVertical,
+      tiltHorizontal: tiltHorizontal,
+      tiltVertical: tiltVertical,
     );
   }
 
@@ -559,6 +675,8 @@ class TransformationService {
     required Offset panOffset,
     required bool flipHorizontal,
     required bool flipVertical,
+    double tiltHorizontal = 0.0,
+    double tiltVertical = 0.0,
   }) {
     const minFrac = 0.05;
 
@@ -584,6 +702,8 @@ class TransformationService {
           panOffset: panOffset,
           flipHorizontal: flipHorizontal,
           flipVertical: flipVertical,
+          tiltHorizontal: tiltHorizontal,
+          tiltVertical: tiltVertical,
         );
 
     final cTL = constrain(tlPx);

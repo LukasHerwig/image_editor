@@ -39,10 +39,16 @@ class _ImageCanvasState extends State<ImageCanvas>
   // ── Snap-to-viewport timer ────────────────────────────────────────────────
   Timer? _snapTimer;
 
+  /// Cancel any pending snap without scheduling a new one.
+  void _cancelSnap() {
+    _snapTimer?.cancel();
+    _snapTimer = null;
+  }
+
   /// Cancel any pending snap and start a fresh 2-second countdown.
   void _scheduleSnap() {
     _snapTimer?.cancel();
-    _snapTimer = Timer(const Duration(seconds: 1), _onSnapTimer);
+    _snapTimer = Timer(const Duration(seconds: 2), _onSnapTimer);
   }
 
   /// After 2 s of idle the crop box animates to fill the viewport so the user
@@ -81,6 +87,8 @@ class _ImageCanvasState extends State<ImageCanvas>
       panOffset: state.panOffset,
       flipHorizontal: state.flipHorizontal,
       flipVertical: state.flipVertical,
+      tiltHorizontal: state.tiltHorizontal,
+      tiltVertical: state.tiltVertical,
     );
 
     // New user scale (capped at 4×).
@@ -103,6 +111,8 @@ class _ImageCanvasState extends State<ImageCanvas>
       panOffset: Offset.zero,
       flipHorizontal: state.flipHorizontal,
       flipVertical: state.flipVertical,
+      tiltHorizontal: state.tiltHorizontal,
+      tiltVertical: state.tiltVertical,
     );
     final newPan = vpCenter - vpPointZeroPan;
 
@@ -136,11 +146,23 @@ class _ImageCanvasState extends State<ImageCanvas>
       duration: const Duration(milliseconds: 250),
     );
     widget.controller.setAnimationController(_animationController);
+    widget.controller.registerCancelSnapCallback(_cancelSnap);
+  }
+
+  @override
+  void didUpdateWidget(ImageCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.unregisterCancelSnapCallback();
+      widget.controller.setAnimationController(_animationController);
+      widget.controller.registerCancelSnapCallback(_cancelSnap);
+    }
   }
 
   @override
   void dispose() {
     _snapTimer?.cancel();
+    widget.controller.unregisterCancelSnapCallback();
     widget.controller.disposeAnimationController();
     _animationController.dispose();
     super.dispose();
@@ -171,6 +193,8 @@ class _ImageCanvasState extends State<ImageCanvas>
             imageSize: _imageSize!,
             viewportSize: vpSize,
             rotationDegrees: state.totalRotation,
+            tiltHorizontal: state.tiltHorizontal,
+            tiltVertical: state.tiltVertical,
           )
         : 1.0;
     final newUserScale =
@@ -209,6 +233,8 @@ class _ImageCanvasState extends State<ImageCanvas>
         totalScale: totalScale,
         flipHorizontal: state.flipHorizontal,
         flipVertical: state.flipVertical,
+        tiltHorizontal: state.tiltHorizontal,
+        tiltVertical: state.tiltVertical,
       );
     } else {
       clampedPan = transformationService.clampPanOffset(
@@ -242,6 +268,8 @@ class _ImageCanvasState extends State<ImageCanvas>
         totalScale: totalScale,
         flipHorizontal: state.flipHorizontal,
         flipVertical: state.flipVertical,
+        tiltHorizontal: state.tiltHorizontal,
+        tiltVertical: state.tiltVertical,
       );
     } else {
       clamped = transformationService.clampPanOffset(
@@ -357,31 +385,36 @@ class _ImageCanvasState extends State<ImageCanvas>
               }
 
               // ── Single unified Transform ──────────────────────────────────
-              // Matrix: T(pan) * S(minScale·userScale) * R(angle) * S(flip)
-              // with pivot at Alignment.center (= viewport centre = image centre
-              // for BoxFit.contain).
-              //
-              // All components live in the SAME widget tree, so rotation,
-              // scale-compensation, user-zoom and pan are always in sync with
-              // no one-frame lag or double-application.
+              // Matrix: [perspRaw] * T(pan) * S(minScale·userScale) * R(angle) * S(flip)
+              // The raw perspective entries are pre-multiplied before the affine
+              // chain; Flutter's alignment: Alignment.center adds the viewport-
+              // centre pivot, so the effective matrix is:
+              //   T(vpCx) × perspRaw × affineRaw × T(-vpCx)
+              // = buildPerspectiveMatrix(pivoted) × affineFull  (WYSIWYG match)
               final totalScale = state.minScaleForRotation * state.scale;
+              final tiltH = state.tiltHorizontal;
+              final tiltV = state.tiltVertical;
+              final Matrix4 displayMatrix = Matrix4.identity()
+                ..setEntry(3, 0,
+                    tiltH * TransformationService.kTiltFactor) // rawPerspX
+                ..setEntry(3, 1,
+                    tiltV * TransformationService.kTiltFactor) // rawPerspY
+                ..multiply(
+                  Matrix4.identity()
+                    ..translateByDouble(
+                        state.panOffset.dx, state.panOffset.dy, 0.0, 1.0)
+                    ..scaleByDouble(totalScale, totalScale, 1.0, 1.0)
+                    ..rotateZ(state.totalRotation * math.pi / 180)
+                    ..scaleByDouble(
+                      state.flipHorizontal ? -1.0 : 1.0,
+                      state.flipVertical ? -1.0 : 1.0,
+                      1.0,
+                      1.0,
+                    ),
+                );
               final transformedImage = Transform(
                 alignment: Alignment.center,
-                transform: Matrix4.identity()
-                  ..translateByDouble(
-                    state.panOffset.dx,
-                    state.panOffset.dy,
-                    0.0,
-                    1.0,
-                  )
-                  ..scaleByDouble(totalScale, totalScale, 1.0, 1.0)
-                  ..rotateZ(state.totalRotation * math.pi / 180)
-                  ..scaleByDouble(
-                    state.flipHorizontal ? -1.0 : 1.0,
-                    state.flipVertical ? -1.0 : 1.0,
-                    1.0,
-                    1.0,
-                  ),
+                transform: displayMatrix,
                 // SizedBox ensures the Image widget receives tight constraints
                 // equal to the viewport so BoxFit.contain letterboxes correctly
                 // and the transform pivots at the image centre.
@@ -455,6 +488,8 @@ class _ImageCanvasState extends State<ImageCanvas>
                           panOffset: state.panOffset,
                           flipHorizontal: state.flipHorizontal,
                           flipVertical: state.flipVertical,
+                          tiltHorizontal: state.tiltHorizontal,
+                          tiltVertical: state.tiltVertical,
                           aspectRatioPreset: state.aspectRatioPreset,
                           onCropChanged: widget.controller.setCropRect,
                           onCropDragEnd: _scheduleSnap,
@@ -462,6 +497,7 @@ class _ImageCanvasState extends State<ImageCanvas>
                           onScaleUpdate: _onScaleUpdate,
                           onScaleEnd: _onScaleEnd,
                           onHandleDragChanged: (dragging) {
+                            if (dragging) _cancelSnap();
                             setState(() {
                               _isDraggingCropHandle = dragging;
                             });
@@ -536,6 +572,8 @@ class CropOverlay extends StatefulWidget {
   final Offset panOffset;
   final bool flipHorizontal;
   final bool flipVertical;
+  final double tiltHorizontal;
+  final double tiltVertical;
 
   final AspectRatioPreset aspectRatioPreset;
   final Function(CropRect) onCropChanged;
@@ -566,6 +604,8 @@ class CropOverlay extends StatefulWidget {
     required this.panOffset,
     required this.flipHorizontal,
     required this.flipVertical,
+    this.tiltHorizontal = 0.0,
+    this.tiltVertical = 0.0,
     this.aspectRatioPreset = AspectRatioPreset.free,
     required this.onCropChanged,
     this.onCropDragEnd,
@@ -610,23 +650,28 @@ class _CropOverlayState extends State<CropOverlay> {
         panOffset: widget.panOffset,
         flipHorizontal: widget.flipHorizontal,
         flipVertical: widget.flipVertical,
+        tiltHorizontal: widget.tiltHorizontal,
+        tiltVertical: widget.tiltVertical,
       );
     }
     return _clampToViewport(rect);
   }
 
   /// Clamp [rect] so it never extends outside the viewport (fractions in [0,1]).
-  /// A 16 px horizontal inset is applied on each side so corner handles are
-  /// always fully visible and never clipped at the screen edges.
+  /// A 16 px inset is applied on each side (horizontal and vertical) so corner
+  /// handles are always fully visible and never clipped at the screen edges.
   CropRect _clampToViewport(CropRect rect) {
     const minSize = 0.05;
     // Convert 16 px inset to viewport fractions.
     final hInset =
         widget.viewportSize.width > 0 ? 16.0 / widget.viewportSize.width : 0.0;
+    final vInset = widget.viewportSize.height > 0
+        ? 16.0 / widget.viewportSize.height
+        : 0.0;
     final left = rect.left.clamp(hInset, 1.0 - hInset - minSize);
-    final top = rect.top.clamp(0.0, 1.0 - minSize);
+    final top = rect.top.clamp(vInset, 1.0 - vInset - minSize);
     final right = (left + rect.width).clamp(left + minSize, 1.0 - hInset);
-    final bottom = (top + rect.height).clamp(top + minSize, 1.0);
+    final bottom = (top + rect.height).clamp(top + minSize, 1.0 - vInset);
     return CropRect(
       left: left,
       top: top,
@@ -804,8 +849,8 @@ class _CropOverlayState extends State<CropOverlay> {
   Widget _buildHandle(
       double x, double y, Alignment alignment, BoxConstraints constraints) {
     return Positioned(
-      left: x - 15,
-      top: y - 15,
+      left: x - 22,
+      top: y - 22,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanStart: (details) {
@@ -844,19 +889,25 @@ class _CropOverlayState extends State<CropOverlay> {
           widget.onHandleDragChanged?.call(false);
           widget.onCropDragEnd?.call();
         },
-        child: Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.black, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 4,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Center(
+            child: Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.black, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -960,8 +1011,8 @@ class _CropOverlayState extends State<CropOverlay> {
     final isHorizontal = edge == 'top' || edge == 'bottom';
 
     return Positioned(
-      left: x - (isHorizontal ? 15 : 4),
-      top: y - (isHorizontal ? 4 : 15),
+      left: x - (isHorizontal ? 22 : 12),
+      top: y - (isHorizontal ? 12 : 22),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanStart: (details) {
@@ -1030,19 +1081,25 @@ class _CropOverlayState extends State<CropOverlay> {
           widget.onHandleDragChanged?.call(false);
           widget.onCropDragEnd?.call();
         },
-        child: Container(
-          width: isHorizontal ? 30 : 8,
-          height: isHorizontal ? 8 : 30,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: Colors.black, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 4,
+        child: SizedBox(
+          width: isHorizontal ? 44 : 24,
+          height: isHorizontal ? 24 : 44,
+          child: Center(
+            child: Container(
+              width: isHorizontal ? 30 : 8,
+              height: isHorizontal ? 8 : 30,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.black, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

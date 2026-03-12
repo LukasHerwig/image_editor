@@ -385,7 +385,7 @@ class _ZImageEditorState extends State<ZImageEditor> {
             ),
             child: Padding(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

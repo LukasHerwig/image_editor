@@ -18,6 +18,16 @@ class ImageEditorController extends ChangeNotifier {
   CropRect? _snapCropStart;
   CropRect? _snapCropEnd;
 
+  /// Registered by [_ImageCanvasState] so ruler interactions can cancel the
+  /// canvas snap timer without needing direct access to canvas state.
+  VoidCallback? _cancelSnapCallback;
+
+  void registerCancelSnapCallback(VoidCallback cb) => _cancelSnapCallback = cb;
+  void unregisterCancelSnapCallback() => _cancelSnapCallback = null;
+
+  /// Cancel any pending snap-to-viewport timer.
+  void _requestCancelSnap() => _cancelSnapCallback?.call();
+
   ImageEditorState get state => _state;
 
   void _updateState(ImageEditorState newState) {
@@ -111,8 +121,31 @@ class ImageEditorController extends ChangeNotifier {
   }
 
   void setFineRotation(double degrees) {
+    _requestCancelSnap();
+    _animationController?.stop();
     _updateState(_state.copyWith(fineRotation: degrees));
     _adjustScaleAndPanForRotation(animate: false);
+  }
+
+  void setTiltHorizontal(double value) {
+    _requestCancelSnap();
+    _animationController?.stop();
+    _updateState(_state.copyWith(tiltHorizontal: value.clamp(-30.0, 30.0)));
+    _adjustScaleAndPanForRotation(animate: false);
+  }
+
+  void setTiltVertical(double value) {
+    _requestCancelSnap();
+    _animationController?.stop();
+    _updateState(_state.copyWith(tiltVertical: value.clamp(-30.0, 30.0)));
+    _adjustScaleAndPanForRotation(animate: false);
+  }
+
+  /// Called when the user releases the ruler after a drag.  Smoothly animates
+  /// any remaining scale/pan correction so the settle feels fluid rather than
+  /// snapping on the last frame.
+  void settleAfterRulerDrag() {
+    _adjustScaleAndPanForRotation(animate: true);
   }
 
   /// Clamp pan (and optionally animate) so the image always covers the crop
@@ -131,18 +164,26 @@ class ImageEditorController extends ChangeNotifier {
         imageSize: imgSize,
         viewportSize: vpSize,
         rotationDegrees: _state.totalRotation,
+        tiltHorizontal: _state.tiltHorizontal,
+        tiltVertical: _state.tiltVertical,
       );
     }
     final targetScale = _state.scale.clamp(minUserScale, 4.0);
-    // Start with the AABB clamp (fast, gives a valid starting point).
-    var targetPan = transformationService.clampPanOffset(
-      currentOffset: _state.panOffset,
-      imageSize: _state.imageSize ?? const Size(100, 100),
-      viewportSize: _state.displaySize ?? const Size(100, 100),
-      rotationDegrees: _state.totalRotation,
-      userScale: targetScale,
-      cropViewport: _cropViewport(),
-    );
+    // When tilt is active the AABB clamp has no tilt awareness and can push
+    // the pan to a position that blocks the raycasting correction (it sees
+    // corners outside on both sides and skips the fix).  Skip AABB entirely
+    // when tilt is on; raycasting below gives the exact correct answer.
+    final hasTilt = _state.tiltHorizontal != 0 || _state.tiltVertical != 0;
+    var targetPan = hasTilt
+        ? _state.panOffset
+        : transformationService.clampPanOffset(
+            currentOffset: _state.panOffset,
+            imageSize: _state.imageSize ?? const Size(100, 100),
+            viewportSize: _state.displaySize ?? const Size(100, 100),
+            rotationDegrees: _state.totalRotation,
+            userScale: targetScale,
+            cropViewport: _cropViewport(),
+          );
     // Then apply exact raycasting correction so no crop corner escapes the image.
     if (imgSize != null && vpSize != null && _state.cropRect != null) {
       targetPan = transformationService.clampPanToCoverCrop(
@@ -154,6 +195,8 @@ class ImageEditorController extends ChangeNotifier {
         totalScale: _state.minScaleForRotation * targetScale,
         flipHorizontal: _state.flipHorizontal,
         flipVertical: _state.flipVertical,
+        tiltHorizontal: _state.tiltHorizontal,
+        tiltVertical: _state.tiltVertical,
       );
     }
     if (animate && _animationController != null) {
@@ -310,6 +353,8 @@ class ImageEditorController extends ChangeNotifier {
         panOffset: _state.panOffset,
         flipHorizontal: _state.flipHorizontal,
         flipVertical: _state.flipVertical,
+        tiltHorizontal: _state.tiltHorizontal,
+        tiltVertical: _state.tiltVertical,
       );
     } else {
       // Sizes not yet known — store as-is; will be constrained once known.
@@ -417,6 +462,7 @@ class ImageEditorController extends ChangeNotifier {
       imageBytes: _state.imageBytes,
       imageSize: _state.imageSize,
       displaySize: _state.displaySize,
+      // tiltHorizontal and tiltVertical default to 0.0
     ));
     transformationService.clearCache();
     _maybeInitCropRect();
