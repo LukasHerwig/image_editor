@@ -8,7 +8,6 @@ import 'package:z_image_editor/src/utils/image_processing.dart';
 import 'package:z_image_editor/src/widgets/adjustment_controls.dart';
 import 'package:z_image_editor/src/widgets/crop_controls.dart';
 import 'package:z_image_editor/src/widgets/image_canvas.dart';
-import 'package:z_image_editor/src/widgets/rotation_controls.dart';
 
 /// iOS-style image editor widget
 class ZImageEditor extends StatefulWidget {

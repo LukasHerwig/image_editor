@@ -9,8 +9,7 @@ enum _AdjParam { brightness, contrast, saturation }
 class AdjustmentControls extends StatefulWidget {
   final ImageEditorController controller;
 
-  const AdjustmentControls({Key? key, required this.controller})
-      : super(key: key);
+  const AdjustmentControls({super.key, required this.controller});
 
   @override
   State<AdjustmentControls> createState() => _AdjustmentControlsState();
