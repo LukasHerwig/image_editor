@@ -12,11 +12,15 @@ class ImageCanvas extends StatefulWidget {
   final Uint8List? imageBytes;
   final ImageEditorController controller;
 
+  /// Whether to show a magnifying glass when dragging crop handles.
+  final bool enableMagnifyingGlass;
+
   const ImageCanvas({
     super.key,
     this.imageFile,
     this.imageBytes,
     required this.controller,
+    this.enableMagnifyingGlass = false,
   });
 
   @override
@@ -514,6 +518,40 @@ class _ImageCanvasState extends State<ImageCanvas>
                               _isDraggingCropHandle = dragging;
                             });
                           },
+                          displayMatrix: widget.enableMagnifyingGlass
+                              ? displayMatrix
+                              : null,
+                          loupeContentBuilder: widget.enableMagnifyingGlass
+                              ? () {
+                                  // Build a fresh widget tree for the loupe — must
+                                  // be a distinct instance from the main canvas.
+                                  Widget loupeImg;
+                                  if (widget.imageFile != null) {
+                                    loupeImg = Image.file(
+                                      widget.imageFile!,
+                                      fit: BoxFit.contain,
+                                    );
+                                  } else {
+                                    loupeImg = Image.memory(
+                                      widget.imageBytes!,
+                                      fit: BoxFit.contain,
+                                    );
+                                  }
+                                  if (state.brightness != 0 ||
+                                      state.contrast != 1.0 ||
+                                      state.saturation != 1.0) {
+                                    loupeImg = ColorFiltered(
+                                      colorFilter: ColorFilterMatrix.combined(
+                                        brightness: state.brightness,
+                                        contrast: state.contrast,
+                                        saturation: state.saturation,
+                                      ),
+                                      child: loupeImg,
+                                    );
+                                  }
+                                  return loupeImg;
+                                }
+                              : null,
                         ),
                       ),
 
@@ -606,6 +644,15 @@ class CropOverlay extends StatefulWidget {
   /// fade the background so the image shows through.
   final void Function(bool)? onHandleDragChanged;
 
+  /// Builds the pre-transform image content (image widget + any color filters)
+  /// used inside the magnifying-glass loupe.  Called once per loupe render to
+  /// produce a fresh widget instance distinct from the main canvas rendering.
+  final Widget Function()? loupeContentBuilder;
+
+  /// The display transform matrix applied to the image on the main canvas.
+  /// Forwarded to the loupe so it renders the same perspective.
+  final Matrix4? displayMatrix;
+
   const CropOverlay({
     super.key,
     this.cropRect,
@@ -625,6 +672,8 @@ class CropOverlay extends StatefulWidget {
     this.onScaleUpdate,
     this.onScaleEnd,
     this.onHandleDragChanged,
+    this.loupeContentBuilder,
+    this.displayMatrix,
   });
 
   @override
@@ -639,6 +688,10 @@ class _CropOverlayState extends State<CropOverlay> {
   /// overlay opacity animation (0 → transparent when idle, 0.5 → dim when
   /// resizing so the cropped-out image region is subtly visible).
   bool _isDraggingHandle = false;
+
+  /// Viewport-local position of the active drag point, used to position and
+  /// render the magnifying-glass loupe.  Null when no handle is being dragged.
+  Offset? _dragPosition;
 
   /// Get the target aspect ratio (null = free form)
   double? get _targetAspectRatio => widget.aspectRatioPreset.ratio;
@@ -852,6 +905,10 @@ class _CropOverlayState extends State<CropOverlay> {
             _buildEdgeHandle(left, top + height / 2, 'left', constraints),
             _buildEdgeHandle(
                 left + width, top + height / 2, 'right', constraints),
+
+            // Magnifying-glass loupe — rendered on top of all handles so it
+            // is never obscured.
+            _buildLoupe(constraints),
           ],
         );
       },
@@ -869,6 +926,9 @@ class _CropOverlayState extends State<CropOverlay> {
           setState(() {
             _dragStartRect = _currentRect;
             _isDraggingHandle = true;
+            // Anchor on the crop corner so the loupe crosshair aligns with
+            // the boundary, not with wherever the finger landed in the hit area.
+            _dragPosition = Offset(x, y);
           });
           widget.onHandleDragChanged?.call(true);
         },
@@ -890,6 +950,10 @@ class _CropOverlayState extends State<CropOverlay> {
 
             _currentRect = _constrain(newRect);
             _dragStartRect = _currentRect;
+            // Track the actual crop corner after constraint, so the loupe
+            // crosshair always sits on the true crop boundary.
+            _dragPosition =
+                _cornerViewportPos(alignment, _currentRect!, constraints);
           });
           widget.onCropChanged(_currentRect!);
         },
@@ -897,6 +961,7 @@ class _CropOverlayState extends State<CropOverlay> {
           setState(() {
             _dragStartRect = null;
             _isDraggingHandle = false;
+            _dragPosition = null;
           });
           widget.onHandleDragChanged?.call(false);
           widget.onCropDragEnd?.call();
@@ -920,6 +985,135 @@ class _CropOverlayState extends State<CropOverlay> {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Loupe position helpers ────────────────────────────────────────────────
+
+  /// Returns the viewport-pixel coordinate of [alignment]'s corner of [rect].
+  Offset _cornerViewportPos(
+      Alignment alignment, CropRect rect, BoxConstraints c) {
+    final l = rect.left * c.maxWidth;
+    final t = rect.top * c.maxHeight;
+    final r = (rect.left + rect.width) * c.maxWidth;
+    final b = (rect.top + rect.height) * c.maxHeight;
+    if (alignment == Alignment.topLeft) return Offset(l, t);
+    if (alignment == Alignment.topRight) return Offset(r, t);
+    if (alignment == Alignment.bottomLeft) return Offset(l, b);
+    return Offset(r, b); // bottomRight
+  }
+
+  /// Returns the viewport-pixel coordinate of the midpoint of [edge] of [rect].
+  Offset _edgeViewportPos(String edge, CropRect rect, BoxConstraints c) {
+    final l = rect.left * c.maxWidth;
+    final t = rect.top * c.maxHeight;
+    final r = (rect.left + rect.width) * c.maxWidth;
+    final b = (rect.top + rect.height) * c.maxHeight;
+    if (edge == 'top') return Offset((l + r) / 2, t);
+    if (edge == 'bottom') return Offset((l + r) / 2, b);
+    if (edge == 'left') return Offset(l, (t + b) / 2);
+    return Offset(r, (t + b) / 2); // right
+  }
+
+  // ── Magnifying-glass loupe ────────────────────────────────────────────────
+
+  /// Builds the circular magnifying-glass loupe shown above the finger while
+  /// the user drags a crop handle.  It re-renders the image with the same
+  /// [displayMatrix] used by the main canvas, then zooms in on the drag point
+  /// so the user can precisely position the crop boundary.
+  Widget _buildLoupe(BoxConstraints constraints) {
+    if (!_isDraggingHandle || _dragPosition == null) {
+      return const SizedBox.shrink();
+    }
+    if (widget.loupeContentBuilder == null || widget.displayMatrix == null) {
+      return const SizedBox.shrink();
+    }
+
+    const double R = 64.0; // loupe radius (dp)
+    const double Z = 2.8; // zoom factor inside the loupe
+    const double gap = 16.0; // minimum gap between loupe edge and touch point
+
+    final Offset fp = _dragPosition!;
+    final double vpW = constraints.maxWidth;
+    final double vpH = constraints.maxHeight;
+
+    // Always place the loupe above the drag point so it never obscures the
+    // boundary under the thumb.  When the handle is near the top edge there
+    // isn't enough room, so we clamp to the top of the viewport (8 dp inset)
+    // rather than flipping below the finger.
+    final double lx = (fp.dx - R).clamp(8.0, vpW - 2 * R - 8.0);
+    final double ly = (fp.dy - 2 * R - gap).clamp(8.0, vpH - 2 * R - 8.0);
+
+    // Build a fresh image widget for the loupe (must be a distinct instance
+    // from the main canvas rendering to satisfy Flutter's widget-tree rules).
+    final Widget imageContent = widget.loupeContentBuilder!();
+
+    // The inner transform mirrors the main canvas's Transform widget.
+    // An outer translate+scale zooms by Z, keeping the drag point centred in
+    // the loupe circle (radius R → centre at (R, R) within the 2R×2R box).
+    final Widget zoomedImage = Transform.translate(
+      offset: Offset(R - Z * fp.dx, R - Z * fp.dy),
+      child: Transform.scale(
+        scale: Z,
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          width: vpW,
+          height: vpH,
+          child: Transform(
+            alignment: Alignment.center,
+            transform: widget.displayMatrix!,
+            child: SizedBox(
+              width: vpW,
+              height: vpH,
+              child: imageContent,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Positioned(
+      left: lx,
+      top: ly,
+      child: Container(
+        width: 2 * R,
+        height: 2 * R,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.45),
+              blurRadius: 16,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: ClipOval(
+          child: Stack(
+            children: [
+              // Zoomed image content
+              SizedBox(
+                width: 2 * R,
+                height: 2 * R,
+                child: OverflowBox(
+                  alignment: Alignment.topLeft,
+                  maxWidth: double.infinity,
+                  maxHeight: double.infinity,
+                  child: zoomedImage,
+                ),
+              ),
+              // Crosshair overlay for precision alignment
+              const IgnorePointer(
+                child: CustomPaint(
+                  size: Size(2 * R, 2 * R),
+                  painter: _LoupeCrosshairPainter(),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1031,6 +1225,9 @@ class _CropOverlayState extends State<CropOverlay> {
           setState(() {
             _dragStartRect = _currentRect;
             _isDraggingHandle = true;
+            // Anchor the loupe on the edge midpoint (the crop boundary),
+            // not on the finger position inside the hit area.
+            _dragPosition = Offset(x, y);
           });
           widget.onHandleDragChanged?.call(true);
         },
@@ -1082,6 +1279,8 @@ class _CropOverlayState extends State<CropOverlay> {
 
             _currentRect = _constrain(newRect);
             _dragStartRect = _currentRect;
+            // Track the actual edge midpoint from the constrained rect.
+            _dragPosition = _edgeViewportPos(edge, _currentRect!, constraints);
           });
           widget.onCropChanged(_currentRect!);
         },
@@ -1089,6 +1288,7 @@ class _CropOverlayState extends State<CropOverlay> {
           setState(() {
             _dragStartRect = null;
             _isDraggingHandle = false;
+            _dragPosition = null;
           });
           widget.onHandleDragChanged?.call(false);
           widget.onCropDragEnd?.call();
@@ -1118,6 +1318,42 @@ class _CropOverlayState extends State<CropOverlay> {
     );
   }
 }
+
+// ── Loupe crosshair ──────────────────────────────────────────────────────────
+
+/// Draws fine crosshair lines at the centre of the magnifying-glass loupe so
+/// the user can precisely align the crop boundary.
+class _LoupeCrosshairPainter extends CustomPainter {
+  const _LoupeCrosshairPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    // Horizontal line
+    canvas.drawLine(Offset(cx - 12, cy), Offset(cx + 12, cy), paint);
+    // Vertical line
+    canvas.drawLine(Offset(cx, cy - 12), Offset(cx, cy + 12), paint);
+
+    // Thin outer ring to subtly frame the centre
+    final ringPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.4)
+      ..strokeWidth = 0.75
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(Offset(cx, cy), 6, ringPaint);
+  }
+
+  @override
+  bool shouldRepaint(_LoupeCrosshairPainter oldDelegate) => false;
+}
+
+// ── Crop overlay painter ──────────────────────────────────────────────────────
 
 class CropOverlayPainter extends CustomPainter {
   final Rect cropRect;

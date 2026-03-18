@@ -10,8 +10,13 @@ enum _TiltMode { straighten, vertical, horizontal }
 /// Crop controls — iOS-style mode badges + ruler slider.
 class CropControls extends StatefulWidget {
   final ImageEditorController controller;
+  final CropTabSettings settings;
 
-  const CropControls({super.key, required this.controller});
+  const CropControls({
+    super.key,
+    required this.controller,
+    this.settings = const CropTabSettings(),
+  });
 
   @override
   State<CropControls> createState() => _CropControlsState();
@@ -22,6 +27,21 @@ class _CropControlsState extends State<CropControls> {
 
   _TiltMode _activeMode = _TiltMode.straighten;
   int? _lastHapticTick;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure the initial active mode is one that is visible.
+    final s = widget.settings;
+    final visible = [
+      if (s.showStraighten) _TiltMode.straighten,
+      if (s.showTiltVertical) _TiltMode.vertical,
+      if (s.showTiltHorizontal) _TiltMode.horizontal,
+    ];
+    if (visible.isNotEmpty && !visible.contains(_activeMode)) {
+      _activeMode = visible.first;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,28 +81,36 @@ class _CropControlsState extends State<CropControls> {
                   // Badge width (52) + gap (16) = one step.
                   const step = 68.0;
                   const half = 26.0; // half badge width for centering
-                  final selectedIdx = _activeMode.index; // 0, 1, 2
 
                   final badges = [
-                    (
-                      mode: _TiltMode.straighten,
-                      icon: CupertinoIcons.arrow_clockwise,
-                      value: angle,
-                      maxRange: 45.0,
-                    ),
-                    (
-                      mode: _TiltMode.vertical,
-                      icon: CupertinoIcons.arrow_up_down,
-                      value: tiltV,
-                      maxRange: 30.0,
-                    ),
-                    (
-                      mode: _TiltMode.horizontal,
-                      icon: CupertinoIcons.arrow_left_right,
-                      value: tiltH,
-                      maxRange: 30.0,
-                    ),
+                    if (widget.settings.showStraighten)
+                      (
+                        mode: _TiltMode.straighten,
+                        icon: CupertinoIcons.arrow_clockwise,
+                        value: angle,
+                        maxRange: 45.0,
+                      ),
+                    if (widget.settings.showTiltVertical)
+                      (
+                        mode: _TiltMode.vertical,
+                        icon: CupertinoIcons.arrow_up_down,
+                        value: tiltV,
+                        maxRange: 30.0,
+                      ),
+                    if (widget.settings.showTiltHorizontal)
+                      (
+                        mode: _TiltMode.horizontal,
+                        icon: CupertinoIcons.arrow_left_right,
+                        value: tiltH,
+                        maxRange: 30.0,
+                      ),
                   ];
+
+                  // Position of the active badge in the filtered list.
+                  final selectedIdx = math.max(
+                    0,
+                    badges.indexWhere((b) => b.mode == _activeMode),
+                  );
 
                   return SizedBox(
                     height: 52,

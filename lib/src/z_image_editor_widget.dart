@@ -3,6 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:z_image_editor/src/controller/image_editor_controller.dart';
+import 'package:z_image_editor/src/models/adjust_tab_settings.dart';
+import 'package:z_image_editor/src/models/crop_tab_settings.dart';
+import 'package:z_image_editor/src/models/crop_toolbar_settings.dart';
 import 'package:z_image_editor/src/models/image_editor_state.dart';
 import 'package:z_image_editor/src/utils/image_processing.dart';
 import 'package:z_image_editor/src/widgets/adjustment_controls.dart';
@@ -16,12 +19,57 @@ class ZImageEditor extends StatefulWidget {
   final Function(File editedImage) onSave;
   final VoidCallback onCancel;
 
+  /// Whether to show a magnifying glass when dragging crop handles.
+  /// Defaults to false.
+  final bool enableMagnifyingGlass;
+
+  /// Label for the cancel button. Defaults to 'Cancel'.
+  final String cancelLabel;
+
+  /// Label for the reset button. Defaults to 'Reset'.
+  final String resetLabel;
+
+  /// Label for the save/done button. Defaults to 'Done'.
+  final String doneLabel;
+
+  /// Whether to show the crop toolbar (rotate, flip, aspect ratio).
+  /// Defaults to `true`.
+  final bool showCropToolbar;
+
+  /// Fine-grained control over which buttons appear in the crop toolbar.
+  /// Only relevant when [showCropToolbar] is `true`.
+  final CropToolbarSettings cropToolbarSettings;
+
+  /// Whether to show the Crop tab. Defaults to `true`.
+  final bool showCropTab;
+
+  /// Fine-grained control over which badges appear in the Crop tab ruler.
+  /// Only relevant when [showCropTab] is `true`.
+  final CropTabSettings cropTabSettings;
+
+  /// Whether to show the Adjust tab. Defaults to `true`.
+  final bool showAdjustTab;
+
+  /// Fine-grained control over which badges appear in the Adjust tab ruler.
+  /// Only relevant when [showAdjustTab] is `true`.
+  final AdjustTabSettings adjustTabSettings;
+
   const ZImageEditor({
     super.key,
     this.imageFile,
     this.imageBytes,
     required this.onSave,
     required this.onCancel,
+    this.enableMagnifyingGlass = false,
+    this.cancelLabel = 'Cancel',
+    this.resetLabel = 'Reset',
+    this.doneLabel = 'Done',
+    this.showCropToolbar = true,
+    this.cropToolbarSettings = const CropToolbarSettings(),
+    this.showCropTab = true,
+    this.cropTabSettings = const CropTabSettings(),
+    this.showAdjustTab = true,
+    this.adjustTabSettings = const AdjustTabSettings(),
   }) : assert(imageFile != null || imageBytes != null,
             'Either imageFile or imageBytes must be provided');
 
@@ -41,6 +89,10 @@ class _ZImageEditorState extends State<ZImageEditor> {
       imageFile: widget.imageFile,
       imageBytes: widget.imageBytes,
     );
+    // Default to the first visible tab.
+    if (!widget.showCropTab && widget.showAdjustTab) {
+      _controller.setTab(EditorTab.adjust);
+    }
   }
 
   @override
@@ -128,6 +180,7 @@ class _ZImageEditorState extends State<ZImageEditor> {
                   imageFile: widget.imageFile,
                   imageBytes: widget.imageBytes,
                   controller: _controller,
+                  enableMagnifyingGlass: widget.enableMagnifyingGlass,
                 ),
               ),
 
@@ -170,9 +223,9 @@ class _ZImageEditorState extends State<ZImageEditor> {
                   CupertinoButton(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     onPressed: _isSaving ? null : widget.onCancel,
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(
+                    child: Text(
+                      widget.cancelLabel,
+                      style: const TextStyle(
                         color: CupertinoColors.systemBlue,
                         fontSize: 17,
                       ),
@@ -181,9 +234,9 @@ class _ZImageEditorState extends State<ZImageEditor> {
                   CupertinoButton(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     onPressed: _isSaving ? null : () => _controller.reset(),
-                    child: const Text(
-                      'Reset',
-                      style: TextStyle(
+                    child: Text(
+                      widget.resetLabel,
+                      style: const TextStyle(
                         color: CupertinoColors.systemBlue,
                         fontSize: 17,
                       ),
@@ -198,9 +251,9 @@ class _ZImageEditorState extends State<ZImageEditor> {
                             height: 20,
                             child: CupertinoActivityIndicator(),
                           )
-                        : const Text(
-                            'Done',
-                            style: TextStyle(
+                        : Text(
+                            widget.doneLabel,
+                            style: const TextStyle(
                               color: CupertinoColors.systemBlue,
                               fontSize: 17,
                               fontWeight: FontWeight.w600,
@@ -214,7 +267,8 @@ class _ZImageEditorState extends State<ZImageEditor> {
             // stays constant across tabs (changing it would shift the image
             // position under BoxFit.contain).
             Visibility(
-              visible: state.currentTab == EditorTab.crop,
+              visible:
+                  widget.showCropToolbar && state.currentTab == EditorTab.crop,
               maintainSize: true,
               maintainAnimation: true,
               maintainState: true,
@@ -226,85 +280,88 @@ class _ZImageEditorState extends State<ZImageEditor> {
     );
   }
 
-  // Compact single-row crop toolbar: rotate/flip icons on the left,
-  // aspect ratio picker icon on the right.
   Widget _buildCropToolbar(ImageEditorState state) {
+    final s = widget.cropToolbarSettings;
     return SizedBox(
       height: 44,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(
           children: [
-            // — rotate 90°
-            _buildToolIcon(
-              icon: CupertinoIcons.rotate_left,
-              onTap: _controller.rotate90,
-            ),
-            const SizedBox(width: 4),
-            // — flip horizontal
-            _buildToolIcon(
-              icon: CupertinoIcons.arrow_left_right,
-              isActive: state.flipHorizontal,
-              onTap: _controller.flipHorizontal,
-            ),
-            const SizedBox(width: 4),
-            // — flip vertical
-            _buildToolIcon(
-              icon: CupertinoIcons.arrow_up_down,
-              isActive: state.flipVertical,
-              onTap: _controller.flipVertical,
-            ),
-            const Spacer(),
-            // — aspect ratio picker
-            GestureDetector(
-              onTap: () => _showAspectRatioPicker(state),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: state.aspectRatioPreset != AspectRatioPreset.free
-                      ? CupertinoColors.systemBlue.withValues(alpha: 0.2)
-                      : const Color(0xFF3A3A3C),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
+            if (s.showRotate) ...[
+              _buildToolIcon(
+                icon: CupertinoIcons.rotate_left,
+                onTap: _controller.rotate90,
+              ),
+              const SizedBox(width: 4),
+            ],
+            if (s.showFlipHorizontal) ...[
+              _buildToolIcon(
+                icon: CupertinoIcons.arrow_left_right,
+                isActive: state.flipHorizontal,
+                onTap: _controller.flipHorizontal,
+              ),
+              const SizedBox(width: 4),
+            ],
+            if (s.showFlipVertical)
+              _buildToolIcon(
+                icon: CupertinoIcons.arrow_up_down,
+                isActive: state.flipVertical,
+                onTap: _controller.flipVertical,
+              ),
+            if (s.showAspectRatio) ...[
+              const Spacer(),
+              GestureDetector(
+                onTap: () => _showAspectRatioPicker(state),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
                     color: state.aspectRatioPreset != AspectRatioPreset.free
-                        ? CupertinoColors.systemBlue
-                        : Colors.transparent,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      CupertinoIcons.crop,
-                      size: 16,
+                        ? CupertinoColors.systemBlue.withValues(alpha: 0.2)
+                        : const Color(0xFF3A3A3C),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
                       color: state.aspectRatioPreset != AspectRatioPreset.free
                           ? CupertinoColors.systemBlue
-                          : Colors.white70,
+                          : Colors.transparent,
                     ),
-                    const SizedBox(width: 5),
-                    Text(
-                      state.aspectRatioPreset.label,
-                      style: TextStyle(
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        CupertinoIcons.crop,
+                        size: 16,
                         color: state.aspectRatioPreset != AspectRatioPreset.free
                             ? CupertinoColors.systemBlue
                             : Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
                       ),
-                    ),
-                    const SizedBox(width: 3),
-                    Icon(
-                      CupertinoIcons.chevron_down,
-                      size: 11,
-                      color: state.aspectRatioPreset != AspectRatioPreset.free
-                          ? CupertinoColors.systemBlue
-                          : Colors.white38,
-                    ),
-                  ],
+                      const SizedBox(width: 5),
+                      Text(
+                        state.aspectRatioPreset.label,
+                        style: TextStyle(
+                          color:
+                              state.aspectRatioPreset != AspectRatioPreset.free
+                                  ? CupertinoColors.systemBlue
+                                  : Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      Icon(
+                        CupertinoIcons.chevron_down,
+                        size: 11,
+                        color: state.aspectRatioPreset != AspectRatioPreset.free
+                            ? CupertinoColors.systemBlue
+                            : Colors.white38,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -376,6 +433,26 @@ class _ZImageEditorState extends State<ZImageEditor> {
   }
 
   Widget _buildTabSelector(ImageEditorState state) {
+    final tabs = [
+      if (widget.showCropTab)
+        _buildTab(
+          icon: CupertinoIcons.crop,
+          label: 'Crop',
+          isSelected: state.currentTab == EditorTab.crop,
+          onTap: () => _controller.setTab(EditorTab.crop),
+        ),
+      if (widget.showAdjustTab)
+        _buildTab(
+          icon: CupertinoIcons.slider_horizontal_3,
+          label: 'Adjust',
+          isSelected: state.currentTab == EditorTab.adjust,
+          onTap: () => _controller.setTab(EditorTab.adjust),
+        ),
+    ];
+
+    // Fewer than two tabs means there's nothing to switch between.
+    if (tabs.length < 2) return const SizedBox(height: 22);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 6, 24, 16),
       child: Center(
@@ -397,20 +474,7 @@ class _ZImageEditorState extends State<ZImageEditor> {
                   const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildTab(
-                    icon: CupertinoIcons.crop,
-                    label: 'Crop',
-                    isSelected: state.currentTab == EditorTab.crop,
-                    onTap: () => _controller.setTab(EditorTab.crop),
-                  ),
-                  _buildTab(
-                    icon: CupertinoIcons.slider_horizontal_3,
-                    label: 'Adjust',
-                    isSelected: state.currentTab == EditorTab.adjust,
-                    onTap: () => _controller.setTab(EditorTab.adjust),
-                  ),
-                ],
+                children: tabs,
               ),
             ),
           ),
@@ -466,8 +530,14 @@ class _ZImageEditorState extends State<ZImageEditor> {
     return IndexedStack(
       index: index,
       children: [
-        CropControls(controller: _controller),
-        AdjustmentControls(controller: _controller),
+        CropControls(
+          controller: _controller,
+          settings: widget.cropTabSettings,
+        ),
+        AdjustmentControls(
+          controller: _controller,
+          settings: widget.adjustTabSettings,
+        ),
       ],
     );
   }

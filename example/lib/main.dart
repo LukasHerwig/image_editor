@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:z_image_editor/z_image_editor.dart';
+import 'package:z_image_editor/image_editor.dart';
 
 void main() {
   runApp(const MyApp());
@@ -53,6 +53,29 @@ class _HomePageState extends State<HomePage> {
           MaterialPageRoute(
             fullscreenDialog: true,
             builder: (context) => ZImageEditor(
+              showAdjustTab: true,
+              showCropTab: true,
+              showCropToolbar: true,
+              adjustTabSettings: const AdjustTabSettings(
+                showBrightness: true,
+                showContrast: true,
+                showSaturation: true,
+              ),
+              cropTabSettings: const CropTabSettings(
+                showStraighten: true,
+                showTiltVertical: true,
+                showTiltHorizontal: true,
+              ),
+              cropToolbarSettings: const CropToolbarSettings(
+                showRotate: true,
+                showFlipHorizontal: true,
+                showFlipVertical: true,
+                showAspectRatio: true,
+              ),
+              cancelLabel: 'Cancel',
+              resetLabel: 'Reset',
+              doneLabel: 'Save',
+              enableMagnifyingGlass: true,
               imageFile: File(pickedFile.path),
               onSave: (File edited) {
                 Navigator.of(context).pop(edited);

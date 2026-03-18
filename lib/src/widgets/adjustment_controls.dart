@@ -9,8 +9,13 @@ enum _AdjParam { brightness, contrast, saturation }
 /// Adjustment controls — three parameter badges + iOS-style ruler slider.
 class AdjustmentControls extends StatefulWidget {
   final ImageEditorController controller;
+  final AdjustTabSettings settings;
 
-  const AdjustmentControls({super.key, required this.controller});
+  const AdjustmentControls({
+    super.key,
+    required this.controller,
+    this.settings = const AdjustTabSettings(),
+  });
 
   @override
   State<AdjustmentControls> createState() => _AdjustmentControlsState();
@@ -21,6 +26,21 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
   int? _lastHapticTick;
 
   static const double _pxPerDeg = _AdjRulerPainter._pxPerDeg;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure the initial active param is one that is visible.
+    final s = widget.settings;
+    final visible = [
+      if (s.showBrightness) _AdjParam.brightness,
+      if (s.showContrast) _AdjParam.contrast,
+      if (s.showSaturation) _AdjParam.saturation,
+    ];
+    if (visible.isNotEmpty && !visible.contains(_active)) {
+      _active = visible.first;
+    }
+  }
 
   /// Maps the active parameter's current value to a display angle in −45…+45
   /// so the ruler can be reused unchanged.
@@ -78,79 +98,80 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                   final cx = constraints.maxWidth / 2;
                   const step = 68.0;
                   const half = 26.0;
-                  final selectedIdx = _active.index; // 0, 1, 2
+
+                  // Build filtered badge list based on settings.
+                  final badges = [
+                    if (widget.settings.showBrightness)
+                      (
+                        param: _AdjParam.brightness,
+                        label: 'Brightness',
+                        icon: CupertinoIcons.sun_max,
+                        value: state.brightness,
+                        maxRange: 100.0,
+                        isZero: state.brightness.abs() < 0.5,
+                      ),
+                    if (widget.settings.showContrast)
+                      (
+                        param: _AdjParam.contrast,
+                        label: 'Contrast',
+                        icon: CupertinoIcons.circle_lefthalf_fill,
+                        value: (state.contrast - 1.0) * 100.0,
+                        maxRange: 100.0,
+                        isZero: (state.contrast - 1.0).abs() < 0.005,
+                      ),
+                    if (widget.settings.showSaturation)
+                      (
+                        param: _AdjParam.saturation,
+                        label: 'Saturation',
+                        icon: CupertinoIcons.drop,
+                        value: (state.saturation - 1.0) * 100.0,
+                        maxRange: 100.0,
+                        isZero: (state.saturation - 1.0).abs() < 0.005,
+                      ),
+                  ];
+
+                  // Position of the active badge in the filtered list.
+                  final selectedIdx = math.max(
+                    0,
+                    badges.indexWhere((b) => b.param == _active),
+                  );
 
                   return SizedBox(
                     height: 70,
                     child: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                          left: cx + (0 - selectedIdx) * step - half,
-                          top: 0,
-                          child: _AdjBadge(
-                            label: 'Brightness',
-                            icon: CupertinoIcons.sun_max,
-                            value: state.brightness,
-                            maxRange: 100.0,
-                            isZero: state.brightness.abs() < 0.5,
-                            formatFn: (v) => '${v > 0 ? '+' : ''}${v.round()}',
-                            isSelected: _active == _AdjParam.brightness,
-                            onTap: () => setState(() {
-                              _active = _AdjParam.brightness;
-                              _lastHapticTick = null;
-                            }),
-                            onDoubleTap: _active == _AdjParam.brightness
-                                ? () => widget.controller.setBrightness(0)
-                                : null,
+                        for (int i = 0; i < badges.length; i++)
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                            left: cx + (i - selectedIdx) * step - half,
+                            top: 0,
+                            child: _AdjBadge(
+                              label: badges[i].label,
+                              icon: badges[i].icon,
+                              value: badges[i].value,
+                              maxRange: badges[i].maxRange,
+                              isZero: badges[i].isZero,
+                              formatFn: (v) =>
+                                  '${v > 0 ? '+' : ''}${v.round()}',
+                              isSelected: _active == badges[i].param,
+                              onTap: () => setState(() {
+                                _active = badges[i].param;
+                                _lastHapticTick = null;
+                              }),
+                              onDoubleTap: _active == badges[i].param
+                                  ? switch (badges[i].param) {
+                                      _AdjParam.brightness => () =>
+                                          widget.controller.setBrightness(0),
+                                      _AdjParam.contrast => () =>
+                                          widget.controller.setContrast(1.0),
+                                      _AdjParam.saturation => () =>
+                                          widget.controller.setSaturation(1.0),
+                                    }
+                                  : null,
+                            ),
                           ),
-                        ),
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                          left: cx + (1 - selectedIdx) * step - half,
-                          top: 0,
-                          child: _AdjBadge(
-                            label: 'Contrast',
-                            icon: CupertinoIcons.circle_lefthalf_fill,
-                            value: (state.contrast - 1.0) * 100.0,
-                            maxRange: 100.0,
-                            isZero: (state.contrast - 1.0).abs() < 0.005,
-                            formatFn: (v) => '${v > 0 ? '+' : ''}${v.round()}',
-                            isSelected: _active == _AdjParam.contrast,
-                            onTap: () => setState(() {
-                              _active = _AdjParam.contrast;
-                              _lastHapticTick = null;
-                            }),
-                            onDoubleTap: _active == _AdjParam.contrast
-                                ? () => widget.controller.setContrast(1.0)
-                                : null,
-                          ),
-                        ),
-                        AnimatedPositioned(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                          left: cx + (2 - selectedIdx) * step - half,
-                          top: 0,
-                          child: _AdjBadge(
-                            label: 'Saturation',
-                            icon: CupertinoIcons.drop,
-                            value: (state.saturation - 1.0) * 100.0,
-                            maxRange: 100.0,
-                            isZero: (state.saturation - 1.0).abs() < 0.005,
-                            formatFn: (v) => '${v > 0 ? '+' : ''}${v.round()}',
-                            isSelected: _active == _AdjParam.saturation,
-                            onTap: () => setState(() {
-                              _active = _AdjParam.saturation;
-                              _lastHapticTick = null;
-                            }),
-                            onDoubleTap: _active == _AdjParam.saturation
-                                ? () => widget.controller.setSaturation(1.0)
-                                : null,
-                          ),
-                        ),
                       ],
                     ),
                   );
