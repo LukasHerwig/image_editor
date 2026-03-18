@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/Zero8-AB/z_image_editor/compare/v0.4.1...v0.5.0) (2026-03-18)
+
+
+### Features
+
+* implement magnifying-glass loupe for precise crop boundary alig… ([#25](https://github.com/Zero8-AB/z_image_editor/issues/25)) ([e80cad0](https://github.com/Zero8-AB/z_image_editor/commit/e80cad0ceb4942e18b02c0a852257a0beef75ffe))
+
+
+### Bug Fixes
+
+* Fix/red blue dots ([#23](https://github.com/Zero8-AB/z_image_editor/issues/23)) ([daa77fe](https://github.com/Zero8-AB/z_image_editor/commit/daa77fe5f22caa6ad257097eefc646bc62725b42))
+
 ## [0.4.1](https://github.com/Zero8-AB/z_image_editor/compare/v0.4.0...v0.4.1) (2026-03-12)
 
 
