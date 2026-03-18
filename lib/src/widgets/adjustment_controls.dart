@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:z_image_editor/image_editor.dart';
+import 'editor_badge.dart';
+import 'editor_ruler_painter.dart';
 
 enum _AdjParam { brightness, contrast, saturation }
 
@@ -25,7 +26,7 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
   _AdjParam _active = _AdjParam.brightness;
   int? _lastHapticTick;
 
-  static const double _pxPerDeg = _AdjRulerPainter._pxPerDeg;
+  static const double _pxPerDeg = EditorRulerPainter.pxPerDeg;
 
   @override
   void initState() {
@@ -147,7 +148,7 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                             curve: Curves.easeInOut,
                             left: cx + (i - selectedIdx) * step - half,
                             top: 0,
-                            child: _AdjBadge(
+                            child: EditorBadge(
                               label: badges[i].label,
                               icon: badges[i].icon,
                               value: badges[i].value,
@@ -155,7 +156,7 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                               isZero: badges[i].isZero,
                               formatFn: (v) =>
                                   '${v > 0 ? '+' : ''}${v.round()}',
-                              isSelected: _active == badges[i].param,
+                              selected: _active == badges[i].param,
                               onTap: () => setState(() {
                                 _active = badges[i].param;
                                 _lastHapticTick = null;
@@ -186,7 +187,7 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                   onHorizontalDragUpdate: (d) =>
                       _onDrag(d.delta.dx, widget.controller.state),
                   child: CustomPaint(
-                    painter: _AdjRulerPainter(angle: displayAngle),
+                    painter: EditorRulerPainter(angle: displayAngle),
                     child: const SizedBox.expand(),
                   ),
                 ),
@@ -197,208 +198,4 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
       },
     );
   }
-}
-
-// ── Parameter badge ───────────────────────────────────────────────────────────
-
-class _AdjBadge extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final double value; // deviation from neutral (or raw for brightness)
-  final double maxRange;
-  final bool isZero;
-  final String Function(double) formatFn;
-  final bool isSelected;
-  final VoidCallback onTap;
-  final VoidCallback? onDoubleTap;
-
-  const _AdjBadge({
-    required this.label,
-    required this.icon,
-    required this.value,
-    required this.maxRange,
-    required this.isZero,
-    required this.formatFn,
-    required this.isSelected,
-    required this.onTap,
-    this.onDoubleTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isPositive = !isZero && value > 0;
-    final bool isNegative = !isZero && value < 0;
-
-    final Color valueColor;
-    if (isPositive) {
-      valueColor = const Color(0xFFFFCC00);
-    } else if (isNegative) {
-      valueColor = Colors.white;
-    } else {
-      valueColor = isSelected ? Colors.white70 : Colors.white38;
-    }
-
-    final Widget centre;
-    if (isSelected && !isZero) {
-      centre = Text(
-        formatFn(value),
-        style: TextStyle(
-          color: valueColor,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      );
-    } else {
-      centre = Icon(icon, color: valueColor, size: 16);
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      onDoubleTap: onDoubleTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CustomPaint(
-            painter: _AdjArcPainter(
-              value: isZero ? 0.0 : value,
-              maxRange: maxRange,
-              color: valueColor,
-            ),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: Center(child: centre),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? const Color(0xFFFFCC00) : Colors.white54,
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Arc painter for adjustment badge border ───────────────────────────────────
-
-class _AdjArcPainter extends CustomPainter {
-  final double value;
-  final double maxRange;
-  final Color color;
-
-  const _AdjArcPainter({
-    required this.value,
-    required this.maxRange,
-    required this.color,
-  });
-
-  static const double _strokeWidth = 2.0;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - _strokeWidth / 2;
-
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.12)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = _strokeWidth,
-    );
-
-    if (value.abs() < 0.001) return;
-
-    final double fraction = (value.abs() / maxRange).clamp(0.0, 1.0);
-    final double sweep = (value > 0 ? 1.0 : -1.0) * fraction * 2 * math.pi;
-
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      sweep,
-      false,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = _strokeWidth
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_AdjArcPainter old) =>
-      old.value != value || old.maxRange != maxRange || old.color != color;
-}
-
-// ── Ruler painter (same visual as crop angle ruler) ───────────────────────────
-
-class _AdjRulerPainter extends CustomPainter {
-  final double angle; // −45…+45 (normalised display value)
-  const _AdjRulerPainter({required this.angle});
-
-  static const double _pxPerDeg = 5.0;
-  static const double _majorEvery = 5.0;
-  static const double _minorEvery = 1.0;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-
-    final double majorH = size.height * 0.55;
-    final double minorH = size.height * 0.28;
-    final double medH = size.height * 0.40;
-
-    final tickPaint = Paint()
-      ..strokeWidth = 1.3
-      ..strokeCap = StrokeCap.round;
-    final centrePaint = Paint()
-      ..color = const Color(0xFFFFCC00)
-      ..strokeWidth = 2.0
-      ..strokeCap = StrokeCap.round;
-
-    final double visibleDeg = (size.width / 2) / _pxPerDeg + 2;
-    final double startDeg =
-        math.max(-45.0, (angle - visibleDeg).floorToDouble());
-    final double endDeg = math.min(45.0, (angle + visibleDeg).ceilToDouble());
-
-    for (double deg = startDeg; deg <= endDeg; deg += _minorEvery) {
-      final double x = cx + (deg - angle) * _pxPerDeg;
-      if (x < 0 || x > size.width) continue;
-
-      final bool isMajor = (deg % _majorEvery).abs() < 0.01;
-      final bool isMed = (deg % 5 != 0) && (deg % 5).abs() < 2.51;
-      final double h = isMajor ? majorH : (isMed ? medH : minorH);
-
-      final double distFromCentre = (x - cx).abs() / (size.width / 2);
-      final double opacity =
-          (1.0 - math.pow(distFromCentre, 2)).clamp(0.15, 1.0).toDouble();
-
-      tickPaint.color = isMajor
-          ? Colors.white.withValues(alpha: opacity)
-          : Colors.white54.withValues(alpha: opacity * 0.7);
-
-      canvas.drawLine(
-        Offset(x, cy - h / 2),
-        Offset(x, cy + h / 2),
-        tickPaint,
-      );
-    }
-
-    canvas.drawLine(
-      Offset(cx, 0),
-      Offset(cx, size.height * 0.72),
-      centrePaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_AdjRulerPainter old) => old.angle != angle;
 }
