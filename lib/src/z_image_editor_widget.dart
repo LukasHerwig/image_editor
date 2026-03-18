@@ -16,12 +16,17 @@ class ZImageEditor extends StatefulWidget {
   final Function(File editedImage) onSave;
   final VoidCallback onCancel;
 
+  /// Whether to show a magnifying glass when dragging crop handles.
+  /// Defaults to false.
+  final bool enableMagnifyingGlass;
+
   const ZImageEditor({
     super.key,
     this.imageFile,
     this.imageBytes,
     required this.onSave,
     required this.onCancel,
+    this.enableMagnifyingGlass = false,
   }) : assert(imageFile != null || imageBytes != null,
             'Either imageFile or imageBytes must be provided');
 
@@ -128,6 +133,7 @@ class _ZImageEditorState extends State<ZImageEditor> {
                   imageFile: widget.imageFile,
                   imageBytes: widget.imageBytes,
                   controller: _controller,
+                  enableMagnifyingGlass: widget.enableMagnifyingGlass,
                 ),
               ),
 

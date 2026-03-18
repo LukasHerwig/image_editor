@@ -12,11 +12,15 @@ class ImageCanvas extends StatefulWidget {
   final Uint8List? imageBytes;
   final ImageEditorController controller;
 
+  /// Whether to show a magnifying glass when dragging crop handles.
+  final bool enableMagnifyingGlass;
+
   const ImageCanvas({
     super.key,
     this.imageFile,
     this.imageBytes,
     required this.controller,
+    this.enableMagnifyingGlass = false,
   });
 
   @override
@@ -514,36 +518,40 @@ class _ImageCanvasState extends State<ImageCanvas>
                               _isDraggingCropHandle = dragging;
                             });
                           },
-                          displayMatrix: displayMatrix,
-                          loupeContentBuilder: () {
-                            // Build a fresh widget tree for the loupe — must
-                            // be a distinct instance from the main canvas.
-                            Widget loupeImg;
-                            if (widget.imageFile != null) {
-                              loupeImg = Image.file(
-                                widget.imageFile!,
-                                fit: BoxFit.contain,
-                              );
-                            } else {
-                              loupeImg = Image.memory(
-                                widget.imageBytes!,
-                                fit: BoxFit.contain,
-                              );
-                            }
-                            if (state.brightness != 0 ||
-                                state.contrast != 1.0 ||
-                                state.saturation != 1.0) {
-                              loupeImg = ColorFiltered(
-                                colorFilter: ColorFilterMatrix.combined(
-                                  brightness: state.brightness,
-                                  contrast: state.contrast,
-                                  saturation: state.saturation,
-                                ),
-                                child: loupeImg,
-                              );
-                            }
-                            return loupeImg;
-                          },
+                          displayMatrix: widget.enableMagnifyingGlass
+                              ? displayMatrix
+                              : null,
+                          loupeContentBuilder: widget.enableMagnifyingGlass
+                              ? () {
+                                  // Build a fresh widget tree for the loupe — must
+                                  // be a distinct instance from the main canvas.
+                                  Widget loupeImg;
+                                  if (widget.imageFile != null) {
+                                    loupeImg = Image.file(
+                                      widget.imageFile!,
+                                      fit: BoxFit.contain,
+                                    );
+                                  } else {
+                                    loupeImg = Image.memory(
+                                      widget.imageBytes!,
+                                      fit: BoxFit.contain,
+                                    );
+                                  }
+                                  if (state.brightness != 0 ||
+                                      state.contrast != 1.0 ||
+                                      state.saturation != 1.0) {
+                                    loupeImg = ColorFiltered(
+                                      colorFilter: ColorFilterMatrix.combined(
+                                        brightness: state.brightness,
+                                        contrast: state.contrast,
+                                        saturation: state.saturation,
+                                      ),
+                                      child: loupeImg,
+                                    );
+                                  }
+                                  return loupeImg;
+                                }
+                              : null,
                         ),
                       ),
 
@@ -1017,8 +1025,9 @@ class _CropOverlayState extends State<CropOverlay> {
   /// [displayMatrix] used by the main canvas, then zooms in on the drag point
   /// so the user can precisely position the crop boundary.
   Widget _buildLoupe(BoxConstraints constraints) {
-    if (!_isDraggingHandle || _dragPosition == null)
+    if (!_isDraggingHandle || _dragPosition == null) {
       return const SizedBox.shrink();
+    }
     if (widget.loupeContentBuilder == null || widget.displayMatrix == null) {
       return const SizedBox.shrink();
     }

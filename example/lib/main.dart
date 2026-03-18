@@ -53,6 +53,7 @@ class _HomePageState extends State<HomePage> {
           MaterialPageRoute(
             fullscreenDialog: true,
             builder: (context) => ZImageEditor(
+              enableMagnifyingGlass: true,
               imageFile: File(pickedFile.path),
               onSave: (File edited) {
                 Navigator.of(context).pop(edited);
