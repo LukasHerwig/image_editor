@@ -165,14 +165,29 @@ class ImageProcessing {
 
     final picture = recorder.endRecording();
     final outputImage = await picture.toImage(outputW, outputH);
-    final pngData =
-        await outputImage.toByteData(format: ui.ImageByteFormat.png);
-    if (pngData == null) throw Exception('Failed to encode rendered image');
+
+    // Read raw RGBA pixels from the GPU texture instead of asking the driver
+    // to encode PNG directly. On iOS/Impeller the direct PNG readback can
+    // swap R and B channels (Metal is BGRA-native), producing scattered red/
+    // blue dots in the output. rawRgba gives us canonical RGBA bytes that we
+    // then encode to PNG entirely on the CPU via the `image` package.
+    final rawData =
+        await outputImage.toByteData(format: ui.ImageByteFormat.rawRgba);
+    outputImage.dispose();
+    if (rawData == null) throw Exception('Failed to read raw image pixels');
+
+    final cpuImage = img.Image.fromBytes(
+      width: outputW,
+      height: outputH,
+      bytes: rawData.buffer,
+      numChannels: 4,
+      order: img.ChannelOrder.rgba,
+    );
 
     final tempDir = Directory.systemTemp;
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final tempFile = File('${tempDir.path}/edited_$timestamp.png');
-    await tempFile.writeAsBytes(pngData.buffer.asUint8List());
+    await tempFile.writeAsBytes(img.encodePng(cpuImage));
     return tempFile;
   }
 

@@ -105,6 +105,19 @@ class _CropControlsState extends State<CropControls> {
                                 _activeMode = badges[i].mode;
                                 _lastHapticTick = null;
                               }),
+                              onDoubleTap: _activeMode == badges[i].mode
+                                  ? () {
+                                      switch (badges[i].mode) {
+                                        case _TiltMode.straighten:
+                                          widget.controller.setFineRotation(0);
+                                        case _TiltMode.vertical:
+                                          widget.controller.setTiltVertical(0);
+                                        case _TiltMode.horizontal:
+                                          widget.controller
+                                              .setTiltHorizontal(0);
+                                      }
+                                    }
+                                  : null,
                             ),
                           ),
                       ],
@@ -188,12 +201,15 @@ class _ModeBadge extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  final VoidCallback? onDoubleTap;
+
   const _ModeBadge({
     required this.icon,
     required this.value,
     required this.maxRange,
     required this.selected,
     required this.onTap,
+    this.onDoubleTap,
   });
 
   @override
@@ -228,6 +244,7 @@ class _ModeBadge extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
       child: CustomPaint(
         painter: _BadgeArcPainter(
           value: value,

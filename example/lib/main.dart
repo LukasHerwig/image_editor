@@ -35,6 +35,15 @@ class _HomePageState extends State<HomePage> {
   File? _editedImage;
   final ImagePicker _picker = ImagePicker();
 
+  void _openFullscreenPreview(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _FullscreenImagePreview(imageFile: _editedImage!),
+      ),
+    );
+  }
+
   Future<void> _pickAndEditImage(ImageSource source) async {
     try {
       final XFile? pickedFile = await _picker.pickImage(source: source);
@@ -82,48 +91,104 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (_editedImage != null)
-              Container(
-                width: 300,
-                height: 300,
-                margin: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                ),
-                child: Image.file(_editedImage!, fit: BoxFit.contain),
-              )
-            else
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'No image selected',
-                  style: TextStyle(fontSize: 16, color: Colors.grey),
-                ),
-              ),
-            const SizedBox(height: 40),
-            ElevatedButton.icon(
-              onPressed: () {
-                log('Camera button pressed');
-                _pickAndEditImage(ImageSource.camera);
-              },
-              icon: const Icon(Icons.camera_alt),
-              label: const Text('Take Photo & Edit'),
-              style: ElevatedButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-              ),
+            Expanded(
+              flex: 3,
+              child: _editedImage != null
+                  ? GestureDetector(
+                      onTap: () => _openFullscreenPreview(context),
+                      child: Container(
+                        alignment: Alignment.center,
+                        margin: const EdgeInsets.all(12),
+                        child: Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            Image.file(_editedImage!, fit: BoxFit.contain),
+                            const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(
+                                Icons.zoom_in,
+                                color: Colors.white,
+                                shadows: [Shadow(blurRadius: 4)],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : const Center(
+                      child: Text(
+                        'No image selected',
+                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                      ),
+                    ),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: () => _pickAndEditImage(ImageSource.gallery),
-              icon: const Icon(Icons.photo_library),
-              label: const Text('Choose from Gallery & Edit'),
-              style: ElevatedButton.styleFrom(
+            Expanded(
+              flex: 1,
+              child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _pickAndEditImage(ImageSource.camera);
+                        },
+                        icon: const Icon(Icons.camera_alt),
+                        label: const Text('Take Photo'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 15),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _pickAndEditImage(ImageSource.gallery),
+                        icon: const Icon(Icons.photo_library),
+                        label: const Text(
+                          'Choose from Gallery',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 15),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FullscreenImagePreview extends StatelessWidget {
+  const _FullscreenImagePreview({required this.imageFile});
+
+  final File imageFile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Preview'),
+      ),
+      body: InteractiveViewer(
+        minScale: 0.5,
+        maxScale: 8.0,
+        child: Center(
+          child: Image.file(imageFile, fit: BoxFit.contain),
         ),
       ),
     );
