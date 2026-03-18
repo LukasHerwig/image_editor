@@ -102,6 +102,9 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                               _active = _AdjParam.brightness;
                               _lastHapticTick = null;
                             }),
+                            onDoubleTap: _active == _AdjParam.brightness
+                                ? () => widget.controller.setBrightness(0)
+                                : null,
                           ),
                         ),
                         AnimatedPositioned(
@@ -121,6 +124,9 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                               _active = _AdjParam.contrast;
                               _lastHapticTick = null;
                             }),
+                            onDoubleTap: _active == _AdjParam.contrast
+                                ? () => widget.controller.setContrast(1.0)
+                                : null,
                           ),
                         ),
                         AnimatedPositioned(
@@ -140,6 +146,9 @@ class _AdjustmentControlsState extends State<AdjustmentControls> {
                               _active = _AdjParam.saturation;
                               _lastHapticTick = null;
                             }),
+                            onDoubleTap: _active == _AdjParam.saturation
+                                ? () => widget.controller.setSaturation(1.0)
+                                : null,
                           ),
                         ),
                       ],
@@ -180,6 +189,7 @@ class _AdjBadge extends StatelessWidget {
   final String Function(double) formatFn;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onDoubleTap;
 
   const _AdjBadge({
     required this.label,
@@ -190,6 +200,7 @@ class _AdjBadge extends StatelessWidget {
     required this.formatFn,
     required this.isSelected,
     required this.onTap,
+    this.onDoubleTap,
   });
 
   @override
@@ -222,6 +233,7 @@ class _AdjBadge extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

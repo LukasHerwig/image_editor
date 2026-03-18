@@ -99,17 +99,23 @@ class ImageProcessing {
     final flipH = state.flipHorizontal;
     final flipV = state.flipVertical;
     final totalDisplayScale = minScaleForRot * userScale;
+    // TODO: migrate back to ..translateByDouble / ..scaleByDouble once the
+    // consuming app has been updated to a Flutter version that ships
+    // vector_math ≥ 2.1.5 (those helpers were added in that release).
     final affineMatrix = Matrix4.identity()
-      ..translateByDouble(
+      // ignore: deprecated_member_use
+      ..translate(
         vpW / 2 + state.panOffset.dx,
         vpH / 2 + state.panOffset.dy,
         0.0,
-        1.0,
       )
-      ..scaleByDouble(totalDisplayScale, totalDisplayScale, 1.0, 1.0)
+      // ignore: deprecated_member_use
+      ..scale(totalDisplayScale, totalDisplayScale, 1.0)
       ..rotateZ(totalRotation * math.pi / 180)
-      ..scaleByDouble(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0, 1.0)
-      ..translateByDouble(-vpW / 2, -vpH / 2, 0.0, 1.0);
+      // ignore: deprecated_member_use
+      ..scale(flipH ? -1.0 : 1.0, flipV ? -1.0 : 1.0, 1.0)
+      // ignore: deprecated_member_use
+      ..translate(-vpW / 2, -vpH / 2, 0.0);
 
     // Prepend perspective tilt: tiltPivoted × affineMatrix.
     final Matrix4 fullMatrix;
@@ -159,14 +165,29 @@ class ImageProcessing {
 
     final picture = recorder.endRecording();
     final outputImage = await picture.toImage(outputW, outputH);
-    final pngData =
-        await outputImage.toByteData(format: ui.ImageByteFormat.png);
-    if (pngData == null) throw Exception('Failed to encode rendered image');
+
+    // Read raw RGBA pixels from the GPU texture instead of asking the driver
+    // to encode PNG directly. On iOS/Impeller the direct PNG readback can
+    // swap R and B channels (Metal is BGRA-native), producing scattered red/
+    // blue dots in the output. rawRgba gives us canonical RGBA bytes that we
+    // then encode to PNG entirely on the CPU via the `image` package.
+    final rawData =
+        await outputImage.toByteData(format: ui.ImageByteFormat.rawRgba);
+    outputImage.dispose();
+    if (rawData == null) throw Exception('Failed to read raw image pixels');
+
+    final cpuImage = img.Image.fromBytes(
+      width: outputW,
+      height: outputH,
+      bytes: rawData.buffer,
+      numChannels: 4,
+      order: img.ChannelOrder.rgba,
+    );
 
     final tempDir = Directory.systemTemp;
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final tempFile = File('${tempDir.path}/edited_$timestamp.png');
-    await tempFile.writeAsBytes(pngData.buffer.asUint8List());
+    await tempFile.writeAsBytes(img.encodePng(cpuImage));
     return tempFile;
   }
 
