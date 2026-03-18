@@ -8,7 +8,10 @@
 - Rotate in 90-degree steps plus fine rotation control
 - Flip horizontally and vertically
 - Adjust brightness, contrast, and saturation
+- Perspective tilt (vertical and horizontal)
+- Optional magnifying glass on crop handle drag
 - Save edited output as a file
+- Fully configurable UI — hide tabs, toolbar buttons, and ruler badges
 - Ship a runnable demo in [`example/`](./example)
 
 ## Installation
@@ -72,6 +75,90 @@ class EditImageButton extends StatelessWidget {
 ```
 
 For a complete integration example, see [`example/lib/main.dart`](./example/lib/main.dart).
+
+## Configuration
+
+All parameters are optional and have sensible defaults, so a minimal integration only requires `imageFile`/`imageBytes`, `onSave`, and `onCancel`.
+
+### Button labels
+
+Localise or customise the three header buttons:
+
+```dart
+ZImageEditor(
+  imageFile: imageFile,
+  onSave: ...,
+  onCancel: ...,
+  cancelLabel: 'Avbryt',
+  resetLabel: 'Återställ',
+  doneLabel: 'Klar',
+)
+```
+
+### Magnifying glass
+
+Show a magnifying glass above the finger while dragging crop handles for precise positioning (off by default):
+
+```dart
+ZImageEditor(
+  imageFile: imageFile,
+  onSave: ...,
+  onCancel: ...,
+  enableMagnifyingGlass: true,
+)
+```
+
+### Crop toolbar
+
+The crop toolbar (rotate, flip, aspect ratio) is shown by default. Hide it entirely or disable individual buttons:
+
+```dart
+ZImageEditor(
+  imageFile: imageFile,
+  onSave: ...,
+  onCancel: ...,
+  // Hide the whole toolbar:
+  showCropToolbar: false,
+
+  // — or keep the toolbar but hide specific buttons:
+  cropToolbarSettings: CropToolbarSettings(
+    showRotate: true,
+    showFlipHorizontal: true,
+    showFlipVertical: true,
+    showAspectRatio: false,
+  ),
+)
+```
+
+### Tabs
+
+Show or hide the Crop and Adjust tabs, and control which ruler badges appear inside each one:
+
+```dart
+ZImageEditor(
+  imageFile: imageFile,
+  onSave: ...,
+  onCancel: ...,
+  // Hide a tab entirely:
+  showAdjustTab: false,
+
+  // Keep the Crop tab but hide the straighten badge:
+  cropTabSettings: CropTabSettings(
+    showStraighten: true,
+    showTiltVertical: true,
+    showTiltHorizontal: true,
+  ),
+
+  // Keep the Adjust tab but hide saturation:
+  adjustTabSettings: AdjustTabSettings(
+    showBrightness: true,
+    showContrast: true,
+    showSaturation: false,
+  ),
+)
+```
+
+When only one tab is enabled the tab bar is hidden automatically.
 
 ## Platform Support
 
